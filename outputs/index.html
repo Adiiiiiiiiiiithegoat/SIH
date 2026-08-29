@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RakshaSetu — Response command center</title>
+  <meta name="description" content="AI-assisted disaster infrastructure triage and response coordination." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand-lockup">
+        <div class="brand-mark">R</div>
+        <div>
+          <div class="brand-name">RakshaSetu</div>
+          <div class="brand-sub">response command center</div>
+        </div>
+      </div>
+
+      <div class="workspace-label">WORKSPACE</div>
+      <nav class="nav-list" aria-label="Main navigation">
+        <button class="nav-item active"><i data-lucide="layout-dashboard"></i><span>Overview</span><span class="nav-count">06</span></button>
+        <button class="nav-item"><i data-lucide="inbox"></i><span>Incoming reports</span><span class="nav-count">24</span></button>
+        <button class="nav-item"><i data-lucide="map"></i><span>Response map</span></button>
+        <button class="nav-item"><i data-lucide="users"></i><span>Field teams</span></button>
+        <button class="nav-item"><i data-lucide="file-check-2"></i><span>Evidence log</span></button>
+      </nav>
+
+      <div class="sidebar-bottom">
+        <div class="system-status"><span class="status-dot"></span><span>All systems operational</span></div>
+        <button class="profile">
+          <span class="avatar">AS</span>
+          <span class="profile-copy"><strong>Ananya S.</strong><small>District control</small></span>
+          <i data-lucide="chevron-up"></i>
+        </button>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <div>
+          <div class="eyebrow">SATURDAY, 30 AUGUST 2026 <span class="live-chip"><span></span>LIVE</span></div>
+          <h1>Good morning, Ananya.</h1>
+          <p class="lede">Here’s what needs attention across the district.</p>
+        </div>
+        <div class="top-actions">
+          <button class="icon-button" aria-label="Notifications"><i data-lucide="bell"></i><span class="notification-dot"></span></button>
+          <button class="outline-button" id="uploadBtn"><i data-lucide="plus"></i> New report</button>
+        </div>
+      </header>
+
+      <section class="stat-grid" aria-label="Situation summary">
+        <article class="stat-card accent">
+          <div class="stat-top"><span>Critical incidents</span><i data-lucide="triangle-alert"></i></div>
+          <div class="stat-number">03</div>
+          <div class="stat-foot"><span class="delta up">+1</span> since 06:00 today</div>
+        </article>
+        <article class="stat-card">
+          <div class="stat-top"><span>Awaiting review</span><i data-lucide="scan-eye"></i></div>
+          <div class="stat-number">08</div>
+          <div class="stat-foot"><span class="delta neutral">02</span> high-confidence AI flags</div>
+        </article>
+        <article class="stat-card">
+          <div class="stat-top"><span>Teams in field</span><i data-lucide="radio"></i></div>
+          <div class="stat-number">07</div>
+          <div class="stat-foot"><span class="delta neutral">05</span> available for dispatch</div>
+        </article>
+        <article class="stat-card">
+          <div class="stat-top"><span>Median response</span><i data-lucide="timer"></i></div>
+          <div class="stat-number">18<span class="unit">m</span></div>
+          <div class="stat-foot"><span class="delta down">−4m</span> vs. last incident cycle</div>
+        </article>
+      </section>
+
+      <section class="primary-grid">
+        <article class="panel map-panel">
+          <div class="panel-header">
+            <div>
+              <div class="section-kicker">DISTRICT SITUATION</div>
+              <h2>Priority map</h2>
+            </div>
+            <div class="map-controls"><button class="tiny-control active">Live</button><button class="tiny-control">24h</button><button class="tiny-control" aria-label="Map layers"><i data-lucide="layers-2"></i></button></div>
+          </div>
+          <div class="map-canvas" aria-label="Map showing incident priorities">
+            <div class="map-grid"></div>
+            <svg class="roads" viewBox="0 0 700 420" preserveAspectRatio="none" aria-hidden="true">
+              <path d="M-20 330 C100 290 160 350 260 288 S410 200 730 250" />
+              <path d="M220 -20 C200 90 330 150 305 230 S360 335 380 450" />
+              <path d="M-20 110 C110 125 180 80 300 110 S500 165 730 90" />
+              <path d="M490 -20 C455 80 540 130 500 210 S530 335 640 450" />
+              <path class="river" d="M70 -10 C170 80 100 160 220 220 S180 340 290 450" />
+            </svg>
+            <div class="map-label label-city">NANDIPUR</div><div class="map-label label-hospital">DISTRICT HOSPITAL</div><div class="map-label label-river">KALI RIVER</div>
+            <button class="map-pin p0" style="left: 54%; top: 40%" data-incident="bridge"><span></span><b>P0</b></button>
+            <button class="map-pin p1" style="left: 31%; top: 63%" data-incident="road"><span></span><b>P1</b></button>
+            <button class="map-pin p2" style="left: 71%; top: 23%" data-incident="building"><span></span><b>P2</b></button>
+            <button class="map-pin p1" style="left: 79%; top: 70%" data-incident="culvert"><span></span><b>P1</b></button>
+            <div class="map-scale"><span></span> 2 km</div>
+          </div>
+          <div class="map-legend"><span><i class="legend-dot critical"></i> P0 immediate</span><span><i class="legend-dot urgent"></i> P1 urgent</span><span><i class="legend-dot monitor"></i> P2 monitor</span><span class="map-updated">Updated 2 min ago</span></div>
+        </article>
+
+        <article class="panel queue-panel">
+          <div class="panel-header">
+            <div><div class="section-kicker">NEXT ACTIONS</div><h2>Inspection queue</h2></div>
+            <button class="text-button">View all <i data-lucide="arrow-up-right"></i></button>
+          </div>
+          <div class="queue-list">
+            <button class="queue-item selected" data-incident="bridge">
+              <span class="priority-badge p0-badge">P0</span>
+              <span class="queue-copy"><strong>Kali River bridge</strong><small>Deck deformation · 4 reports</small></span>
+              <span class="queue-time">8m ago</span>
+            </button>
+            <button class="queue-item" data-incident="road">
+              <span class="priority-badge p1-badge">P1</span>
+              <span class="queue-copy"><strong>NH-47, east approach</strong><small>Flooding & debris · 9 reports</small></span>
+              <span class="queue-time">22m ago</span>
+            </button>
+            <button class="queue-item" data-incident="building">
+              <span class="priority-badge p2-badge">P2</span>
+              <span class="queue-copy"><strong>Shanti Nagar school</strong><small>Wall cracks · 2 reports</small></span>
+              <span class="queue-time">41m ago</span>
+            </button>
+            <button class="queue-item" data-incident="culvert">
+              <span class="priority-badge p1-badge">P1</span>
+              <span class="queue-copy"><strong>Ward 12 culvert</strong><small>Possible foundation erosion</small></span>
+              <span class="queue-time">1h ago</span>
+            </button>
+          </div>
+          <div class="queue-footer"><i data-lucide="sparkles"></i><span>AI triage considered severity, access, population and confidence.</span></div>
+        </article>
+      </section>
+
+      <section class="lower-grid">
+        <article class="panel incident-panel">
+          <div class="panel-header">
+            <div><div class="section-kicker">SELECTED INCIDENT</div><h2 id="incidentTitle">Kali River bridge</h2></div>
+            <span class="status-pill alert"><span></span> Needs inspection</span>
+          </div>
+          <div class="incident-body">
+            <div class="evidence-preview">
+              <div class="evidence-art"><div class="bridge-line"></div><div class="crack c1"></div><div class="crack c2"></div><div class="evidence-overlay">AI EVIDENCE VIEW</div></div>
+              <div class="evidence-caption"><span><i data-lucide="image"></i> IMG_2026_0830_0614</span><span>06:14 · 23.18° N, 77.41° E</span></div>
+            </div>
+            <div class="incident-facts">
+              <div class="fact-row"><span>AI assessment</span><strong class="severity">Severe damage</strong></div>
+              <div class="fact-row"><span>Confidence</span><strong>91%</strong></div>
+              <div class="fact-row"><span>Estimated affected</span><strong>1,800 people</strong></div>
+              <div class="fact-row"><span>Nearest critical site</span><strong>District hospital · 8.2 km</strong></div>
+              <div class="why-box"><div class="why-head"><i data-lucide="lightbulb"></i><span>Why P0?</span></div><p>Only road linking two villages to the district hospital. No alternate route within 25 km.</p></div>
+              <button class="primary-button" id="reviewBtn"><i data-lucide="clipboard-check"></i> Review & assign</button>
+            </div>
+          </div>
+        </article>
+        <article class="panel teams-panel">
+          <div class="panel-header"><div><div class="section-kicker">FIELD OPERATIONS</div><h2>Team availability</h2></div><button class="icon-button small"><i data-lucide="more-horizontal"></i></button></div>
+          <div class="team-list">
+            <div class="team-row"><span class="team-icon orange"><i data-lucide="hard-hat"></i></span><span><strong>Structural team 02</strong><small>Bridge inspection</small></span><span class="team-status ready">Ready · 4.1 km</span></div>
+            <div class="team-row"><span class="team-icon blue"><i data-lucide="drone"></i></span><span><strong>UAV unit 01</strong><small>Aerial evidence capture</small></span><span class="team-status field">In field · 12m</span></div>
+            <div class="team-row"><span class="team-icon green"><i data-lucide="route"></i></span><span><strong>Clearance crew 03</strong><small>Road debris removal</small></span><span class="team-status ready">Ready · 7.8 km</span></div>
+          </div>
+          <button class="secondary-button">Open field roster <i data-lucide="arrow-right"></i></button>
+        </article>
+      </section>
+
+      <footer class="footer-note"><span>RakshaSetu v0.9.4</span><span>Data refreshes every 60 seconds</span><span><i data-lucide="shield-check"></i> Decisions remain with authorized responders</span></footer>
+    </main>
+  </div>
+
+  <div class="modal-backdrop" id="modalBackdrop" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <button class="modal-close" id="modalClose" aria-label="Close"><i data-lucide="x"></i></button>
+      <div class="section-kicker">NEW EVIDENCE REPORT</div><h2 id="modalTitle">Add an incident</h2><p class="modal-copy">Upload field imagery and let RakshaSetu prepare a triage recommendation.</p>
+      <div class="dropzone" id="dropzone"><i data-lucide="upload-cloud"></i><strong>Drop images or video here</strong><span>or click to browse · JPG, PNG, MP4 up to 100 MB</span><input type="file" id="fileInput" hidden accept="image/*,video/*"></div>
+      <div class="upload-row"><div class="fake-input"><i data-lucide="map-pin"></i><span>Location will be captured from device</span></div><button class="primary-button" id="analyzeBtn">Analyze report <i data-lucide="arrow-right"></i></button></div>
+      <div class="upload-success" id="uploadSuccess"><i data-lucide="check-circle-2"></i><span>Evidence queued. AI triage will appear in the incoming reports view.</span></div>
+    </div>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
