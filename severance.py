@@ -15,6 +15,7 @@ warnings.filterwarnings("ignore")
 import networkx as nx
 import numpy as np
 import osmnx as ox
+import rasterio
 from shapely.geometry import MultiPoint
 
 # popdata.py is a verbatim copy of population/population.py (no runtime import
@@ -93,7 +94,6 @@ print(f"  available: {RASTER_OK}" + ("" if RASTER_OK else
 
 RB = None
 if RASTER_OK:
-    import rasterio
     with rasterio.open(popdata.RASTER) as _r:
         RB = _r.bounds
     print(f"  raster bounds: {tuple(round(b, 5) for b in RB)}")
@@ -116,29 +116,65 @@ def coverage(poly):
     return "partial"
 
 
-def pop_of(poly):
-    """Population inside a polygon, or None when unavailable/off-raster.
+def pop_detail(poly):
+    """Population inside a polygon, distinguishing a real 0 from a missing one.
 
-    Never returns 0.0 for a polygon the raster does not cover -- that would be
-    indistinguishable from a genuinely empty pocket.
+    popdata.population_in returns 0.0 when a polygon covers only nodata cells,
+    which makes "nobody lives here" and "we never measured here" identical. This
+    raster is 71% nodata and its minimum valid value is 6.08 -- it contains no
+    zero-valued valid cell at all -- so every 0.0 it produced was a missing
+    measurement. Here nodata yields value=None with the reason recorded.
     """
-    if not RASTER_OK or coverage(poly) == "outside":
-        return None
-    try:
-        return float(popdata.population_in(poly))
-    except FileNotFoundError:
-        return None
-    except Exception as exc:
-        print(f"    [population lookup failed: {type(exc).__name__}: {exc}]")
-        return None
+    out = {"value": None, "method": "none", "cells": 0, "coverage": coverage(poly)}
+    if not RASTER_OK:
+        out["method"] = "no-raster"
+        return out
+    if out["coverage"] == "outside":
+        out["method"] = "off-raster"
+        return out
+    from rasterio.mask import mask as rio_mask
+    geom = poly if poly.is_valid else poly.buffer(0)
+    with rasterio.open(popdata.RASTER) as src:
+        try:
+            arr, _ = rio_mask(src, [geom], crop=True, filled=False, all_touched=False)
+        except ValueError:
+            out["method"] = "no-overlap"
+            return out
+        if arr.count() > 0:
+            out.update(value=float(arr.sum()), method="cells", cells=int(arr.count()))
+            return out
+        # smaller than a cell, or between cell centres: prorate the containing
+        # cell -- but only if that cell actually holds data.
+        c = geom.centroid
+        if not (src.bounds.left <= c.x <= src.bounds.right
+                and src.bounds.bottom <= c.y <= src.bounds.top):
+            out["method"] = "off-raster"
+            return out
+        v = next(src.sample([(c.x, c.y)], masked=True))[0]
+        if v is np.ma.masked:
+            out["method"] = "nodata-only"   # was silently 0.0 before
+            return out
+        cell = abs(src.transform.a * src.transform.e)
+        out.update(value=float(v) * min(1.0, geom.area / cell),
+                   method="prorated", cells=1)
+        return out
+
+
+def pop_of(poly):
+    return pop_detail(poly)["value"]
 
 
 def pop_str(poly):
-    p, cov = pop_of(poly), coverage(poly)
-    if p is None:
-        return f"None ({'off raster' if cov == 'outside' else 'raster unavailable'})"
-    return f"{p:,.1f}" + ("  [PARTIAL raster coverage -- undercount]"
-                          if cov == "partial" else "")
+    d = pop_detail(poly)
+    if d["value"] is None:
+        why = {"off-raster": "outside raster footprint",
+               "nodata-only": "raster has no data here -- NOT a measured zero",
+               "no-overlap": "polygon does not meet the raster",
+               "no-raster": "raster unavailable"}.get(d["method"], d["method"])
+        return f"None ({why})"
+    return (f"{d['value']:,.1f}  [WorldPop raster, {d['method']}, "
+            f"{d['cells']} cell(s), coverage={d['coverage']}]"
+            + ("  PARTIAL -- undercount" if d["coverage"] == "partial" else ""))
 
 
 def hull_of(nodes):
@@ -287,9 +323,7 @@ def describe_pocket(nodes, indent="      "):
     print(f"{indent}hull: {hull.geom_type}, area {hull_area_km2(hull):.4f} km2"
           + (f"  (population taken over hull buffered {POCKET_BUFFER_M:.0f} m"
              f" -- raw hull has no area)" if widened else ""))
-    print(f"{indent}population: {pop_str(poly)}"
-          + (f"  [WorldPop raster, coverage={coverage(poly)}]"
-             if population is not None else ""))
+    print(f"{indent}population: {pop_str(poly)}")
     if np_:
         p, dm = np_
         print(f"{indent}nearest named place: {p['name']} ({p['type']}) {dm/1000:.2f} km away"
@@ -387,12 +421,18 @@ for key, label in CRITERIA:
     print(f"  + {key}  {label:<54} {len(run):>5}   (-{before - len(run)})")
 
 survivors = run
-survivors.sort(key=lambda a: a["n"], reverse=True)
+for a in survivors:
+    a["pop"] = pop_of(a["poly"])
+survivors.sort(key=lambda a: (a["pop"] is not None, a["pop"] if a["pop"] is not None else 0,
+                              a["n"]), reverse=True)
 hr(f"1c. SURVIVING POCKETS  ({len(survivors)})")
-if not RASTER_OK:
-    print("ranked by node count; population is None until the WorldPop crop exists.\n")
-else:
-    print("ranked by node count, population shown where the raster resolves it.\n")
+print("ranked by POPULATION descending, None last. node count is a column, not the sort key.\n")
+_none = sum(1 for a in survivors if a["pop"] is None)
+_zero = sum(1 for a in survivors if a["pop"] == 0.0)
+_nod = sum(1 for a in survivors if pop_detail(a["poly"])["method"] == "nodata-only")
+print(f"survivors: {len(survivors)}   with a population value: {len(survivors) - _none}   "
+      f"None: {_none}   exactly 0.0: {_zero}")
+print(f"of the None, nodata-only (silently 0.0 before this fix): {_nod}\n")
 
 if not survivors:
     print("NONE survived the filter.")
@@ -400,7 +440,7 @@ for i, a in enumerate(survivors, 1):
     m = span_meta(a["pair"])
     u, v = a["pair"]
     na, nb = G.nodes[u], G.nodes[v]
-    pop = pop_of(a["poly"])
+    pop = a["pop"]
     cen = a["poly"].centroid
     print(f"\n#{i}  {'BRIDGE' if m['bridge'] else 'road  '}  {m['name']}"
           f"{'' if in_report_bbox(cen.y, cen.x) else '   [outside report bbox]'}")
@@ -431,6 +471,88 @@ for label, pa, pb in KNOWN:
         for key, lab in CRITERIA:
             print(f"    {'PASS' if a[key] else 'FAIL'}  {key}  {lab}")
         print(f"  VERDICT: {'PASSES the filter' if verdict else 'EXCLUDED'}")
+
+hr("1e. DEMO SHORTLIST  (top 10 by population, pocket centroid inside report bbox)")
+print(f"report bbox: west {W} south {S} east {E} north {N}\n")
+
+
+def full_dump(a, rank=None):
+    pair = a["pair"]
+    u, v = pair
+    m = span_meta(pair)
+    na, nb = G.nodes[u], G.nodes[v]
+    d = pop_detail(a["poly"])
+    cen = a["poly"].centroid
+    pre = best_facility(a["nodes"])
+    lbl = nearest_named_place(cen.y, cen.x)
+    print(f"\n{'#' + str(rank) + '  ' if rank else ''}POCKET near "
+          f"{lbl[0]['name'] if lbl else '?'}   population "
+          + ("None" if d["value"] is None else f"{d['value']:,.1f}"))
+    print("  POPULATION")
+    print(f"    value  : " + ("None" if d["value"] is None else f"{d['value']:,.1f} people"))
+    print(f"    source : WorldPop 2020 constrained 100 m gridded estimate, summed over")
+    print(f"             the pocket polygon. A modelled estimate, NOT an enumerated")
+    print(f"             census count, and not tied to any administrative boundary.")
+    print(f"    method : {d['method']}, {d['cells']} raster cell(s), "
+          f"coverage={d['coverage']}")
+    print("  POCKET GEOMETRY")
+    print(f"    nodes ({a['n']}): {', '.join(str(n) for n in sorted(a['nodes']))}")
+    print(f"    centroid: {cen.y:.6f}, {cen.x:.6f}")
+    print(f"    hull area: {a['area']:.4f} km2"
+          + ("   (raw hull degenerate; population polygon is the "
+             f"{POCKET_BUFFER_M:.0f} m buffer)" if a["widened"] else ""))
+    ring = a["hull"] if a["hull"].geom_type == "Polygon" else None
+    if ring is not None:
+        print(f"    polygon (lat, lon):")
+        for x, y in ring.exterior.coords:
+            print(f"      {y:.6f}, {x:.6f}")
+    else:
+        print(f"    polygon: {a['hull'].geom_type} -- "
+              + ", ".join(f"({y:.6f}, {x:.6f})" for x, y in a["hull"].coords))
+    print("  SEVERING EDGE")
+    print(f"    node IDs   : {u} -> {v}")
+    print(f"    coordinates: ({na['y']:.6f}, {na['x']:.6f}) -> ({nb['y']:.6f}, {nb['x']:.6f})")
+    print(f"    name       : {m['name']}")
+    print(f"    length     : {m['length']:.1f} m")
+    print(f"    highway    : {m['highway']}")
+    print(f"    bridge tag : {m['bridge_tag'] if m['bridge'] else 'NONE (not a bridge)'}")
+    print(f"    endpoint degrees: {a['deg'][0]} / {a['deg'][1]}")
+    print(f"    directed segments removed: {m['n_seg']}")
+    print("  ACCESS TO CARE")
+    if pre:
+        print(f"    becomes unreachable: {pre[0]}")
+        print(f"    prior access       : {pre[1]/1000:.2f} km (from pocket node {pre[2]})")
+    else:
+        print(f"    becomes unreachable: (nothing was reachable before)")
+    print("  LABEL")
+    if lbl:
+        print(f"    nearest named place: {lbl[0]['name']} ({lbl[0]['type']}) at "
+              f"{lbl[1]/1000:.2f} km")
+        print(f"    LABEL ONLY -- this place node is NOT inside the pocket and was")
+        print(f"    not used to detect the severance.")
+
+
+in_box = [a for a in survivors
+          if in_report_bbox(a["poly"].centroid.y, a["poly"].centroid.x)
+          and a["pop"] is not None]
+in_box.sort(key=lambda a: a["pop"], reverse=True)
+print(f"survivors with centroid inside the report bbox and a population value: {len(in_box)}")
+print(f"{'#':>3} {'pop':>10} {'nodes':>6} {'km2':>8} {'prior_km':>9} {'bridge':>7}  label")
+print("-" * 84)
+for i, a in enumerate(in_box[:10], 1):
+    lbl = nearest_named_place(a["poly"].centroid.y, a["poly"].centroid.x)
+    print(f"{i:>3} {a['pop']:>10,.1f} {a['n']:>6} {a['area']:>8.4f} {a['prior']/1000:>9.2f} "
+          f"{'YES' if span_meta(a['pair'])['bridge'] else 'no':>7}  "
+          f"{lbl[0]['name'] if lbl else '?'}")
+
+for i, a in enumerate(in_box[:10], 1):
+    full_dump(a, i)
+
+hr("1f. FULL DETAIL: THE STRONGEST IN-BBOX CASE")
+if in_box:
+    full_dump(in_box[0])
+else:
+    print("no in-bbox pocket with a population value")
 
 if "--no-detour" in sys.argv:
     hr("DONE (detour sweep skipped via --no-detour)")
