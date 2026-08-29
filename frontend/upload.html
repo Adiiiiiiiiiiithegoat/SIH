@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Field report upload | Responda</title>
+  <link rel="stylesheet" href="vendor/leaflet.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand"><span class="brand-mark">R</span><span>Responda</span></div>
+    <a class="header-link" href="dashboard.html">Operator dashboard</a>
+  </header>
+  <main class="page">
+    <div class="upload-layout">
+      <section class="intro">
+        <div class="eyebrow">Rapid damage reporting</div>
+        <h1>Help teams see what the storm has changed.</h1>
+        <p>Send a photo of a damaged road or building. Your location helps response teams understand which communities may have lost access.</p>
+        <p class="eyebrow">No account required · Works offline</p>
+      </section>
+      <section class="panel upload-card">
+        <div class="eyebrow">New field report</div>
+        <h2>Share a photo</h2>
+        <div id="dropzone" class="dropzone">
+          <strong>Choose an image or video</strong>
+          <div class="muted">GPS is read from the file when available.</div>
+          <input id="mediaInput" type="file" accept="image/*,video/*" capture="environment">
+        </div>
+        <div id="preview" class="preview">
+          <img id="previewImage" alt="Selected report preview">
+          <div id="fileName" class="muted"></div>
+        </div>
+        <div id="mapSmall" class="map-small" aria-label="Report location map"></div>
+        <div class="form-row">
+          <div class="field"><label for="assetType">What is affected?</label><select id="assetType"><option value="road">Road</option><option value="building">Building</option></select></div>
+          <div class="field"><label for="accuracy">GPS accuracy (m)</label><input id="accuracy" type="number" min="0" step="0.1" placeholder="Optional"></div>
+        </div>
+        <button id="submitReport" class="primary-btn full-btn" type="button">Submit report</button>
+        <div id="queue" class="queue"><span class="dot"></span><span>Saved on this device. Retrying when the connection returns.</span></div>
+        <div id="notice" class="notice" role="status"></div>
+      </section>
+    </div>
+  </main>
+  <script src="vendor/leaflet.js"></script>
+  <script src="vendor/exif.js"></script>
+  <script src="config.js"></script>
+  <script src="mocks/data.js"></script>
+  <script src="app.js"></script>
+  <script src="upload.js"></script>
+</body>
+</html>
