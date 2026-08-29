@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Operator dashboard | Responda</title>
+  <link rel="stylesheet" href="vendor/leaflet.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="app-header"><div class="brand"><span class="brand-mark">R</span><span>Responda <span class="muted">/ Operations</span></span></div><a class="header-link" href="upload.html">Public upload</a></header>
+  <main class="dash-shell">
+    <section class="map-pane"><div id="map" class="map-full"></div><div class="map-overlay"><div class="eyebrow">Live picture</div><strong id="mapCount">Loading reports…</strong><div class="legend"><div class="legend-item"><span class="legend-line" style="background:#b83a3a"></span>Impassable / damaged</div><div class="legend-item"><span class="legend-line" style="background:#55706b"></span>Passable / clear</div><div class="legend-item"><span class="legend-line unknown"></span>Unknown</div><div class="legend-item"><span class="legend-pin"></span>Report pin</div></div><button id="manualBtn" class="secondary-btn full-btn" type="button">＋ Manual report</button></div><div id="manualBanner" class="manual-banner">Manual report mode: click the map</div><div id="detail" class="detail"></div></section>
+    <aside class="dashboard-side"><div class="dash-header"><div class="dash-title"><div><div class="eyebrow">Dispatch queue</div><h1>Infrastructure assessment</h1></div><span id="modeStatus" class="badge"></span></div><div class="mode-control"><label for="modeSelect" class="eyebrow">Detection mode</label><select id="modeSelect"><option value="model">Offline model</option><option value="api">Cloud API</option></select></div><div class="tabs"><button class="tab active" data-status="pending">Pending <span id="pendingCount"></span></button><button class="tab" data-status="closed">Closed <span id="closedCount"></span></button></div></div><div id="reportList" class="list"></div></aside>
+  </main>
+  <script src="vendor/leaflet.js"></script><script src="config.js"></script><script src="mocks/data.js"></script><script src="app.js"></script><script src="dashboard.js"></script>
+</body>
+</html>
