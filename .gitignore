@@ -1,0 +1,28 @@
+# Large data / archives — never commit
+MEDIC.tar.gz
+*.opdownload
+medic/
+population/data/*.tif
+population/data/*.tiff
+population/.venv/
+
+# Generated graphs / databases
+*.graphml
+*.db
+*.sqlite3
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+cache/
+
+# App runtime
+app/data/uploads/
+
+# Reports / scratch
+report*.txt
+
+# OS
+.DS_Store
