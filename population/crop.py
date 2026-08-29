@@ -21,8 +21,13 @@ with rasterio.open(src_path) as src:
         "width": data.shape[2],
         "transform": src.window_transform(win),
         "compress": "deflate",
-        "tiled": True,
+        # ponytail: the crop is a few hundred cells square -- untiled, and drop
+        # the source's stripe block sizes, which aren't valid for this shape.
+        "tiled": False,
+        "bigtiff": "NO",
     }
+    profile.pop("blockxsize", None)
+    profile.pop("blockysize", None)
     with rasterio.open(dst_path, "w", **profile) as dst:
         dst.write(data)
 

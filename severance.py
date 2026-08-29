@@ -91,9 +91,38 @@ print(f"  available: {RASTER_OK}" + ("" if RASTER_OK else
       " pocket populations report as None"))
 
 
+RB = None
+if RASTER_OK:
+    import rasterio
+    with rasterio.open(popdata.RASTER) as _r:
+        RB = _r.bounds
+    print(f"  raster bounds: {tuple(round(b, 5) for b in RB)}")
+    print(f"  graph bbox:    {tuple(round(b, 5) for b in BUF)}")
+    if (RB.left > BUF[0] or RB.bottom > BUF[1]
+            or RB.right < BUF[2] or RB.top < BUF[3]):
+        print("  WARNING: raster is smaller than the graph. Pockets outside its")
+        print("           footprint report coverage=outside, never a silent 0.")
+
+
+def coverage(poly):
+    """full / partial / outside -- the raster is narrower than the graph."""
+    if RB is None:
+        return "no-raster"
+    x0, y0, x1, y1 = poly.bounds
+    if x1 < RB.left or x0 > RB.right or y1 < RB.bottom or y0 > RB.top:
+        return "outside"
+    if x0 >= RB.left and x1 <= RB.right and y0 >= RB.bottom and y1 <= RB.top:
+        return "full"
+    return "partial"
+
+
 def pop_of(poly):
-    """Population inside a polygon, or None when the raster is unavailable."""
-    if not RASTER_OK:
+    """Population inside a polygon, or None when unavailable/off-raster.
+
+    Never returns 0.0 for a polygon the raster does not cover -- that would be
+    indistinguishable from a genuinely empty pocket.
+    """
+    if not RASTER_OK or coverage(poly) == "outside":
         return None
     try:
         return float(popdata.population_in(poly))
@@ -102,6 +131,14 @@ def pop_of(poly):
     except Exception as exc:
         print(f"    [population lookup failed: {type(exc).__name__}: {exc}]")
         return None
+
+
+def pop_str(poly):
+    p, cov = pop_of(poly), coverage(poly)
+    if p is None:
+        return f"None ({'off raster' if cov == 'outside' else 'raster unavailable'})"
+    return f"{p:,.1f}" + ("  [PARTIAL raster coverage -- undercount]"
+                          if cov == "partial" else "")
 
 
 def hull_of(nodes):
@@ -250,9 +287,9 @@ def describe_pocket(nodes, indent="      "):
     print(f"{indent}hull: {hull.geom_type}, area {hull_area_km2(hull):.4f} km2"
           + (f"  (population taken over hull buffered {POCKET_BUFFER_M:.0f} m"
              f" -- raw hull has no area)" if widened else ""))
-    print(f"{indent}population: "
-          + ("None  (WorldPop crop unavailable)" if population is None
-             else f"{population:,.1f}  [WorldPop raster]"))
+    print(f"{indent}population: {pop_str(poly)}"
+          + (f"  [WorldPop raster, coverage={coverage(poly)}]"
+             if population is not None else ""))
     if np_:
         p, dm = np_
         print(f"{indent}nearest named place: {p['name']} ({p['type']}) {dm/1000:.2f} km away"
@@ -372,8 +409,7 @@ for i, a in enumerate(survivors, 1):
     print(f"    ({na['y']:.5f},{na['x']:.5f}) -> ({nb['y']:.5f},{nb['x']:.5f})"
           f"   endpoint degrees {a['deg'][0]}/{a['deg'][1]}")
     print(f"    pocket: {a['n']} nodes, hull {a['area']:.4f} km2, "
-          f"prior access {a['prior']/1000:.2f} km, population "
-          + ("None" if pop is None else f"{pop:,.1f}"))
+          f"prior access {a['prior']/1000:.2f} km, population {pop_str(a['poly'])}")
     describe_pocket(set(a["nodes"]))
 
 hr("1d. THE TWO KNOWN SPANS AGAINST THE FILTER")
@@ -486,9 +522,7 @@ for label, a, b in KNOWN:
     for nodes in pk:
         info = describe_pocket(nodes, indent="    ")
         print(f"    polygon area: {hull_area_km2(info['hull']):.4f} km2")
-        print(f"    pocket population: "
-              + ("None (WorldPop crop unavailable)" if info["pop"] is None
-                 else f"{info['pop']:,.1f}"))
+        print(f"    pocket population: {pop_str(info['poly'])}")
         if info["pre"]:
             print(f"    facility that becomes unreachable: {info['pre'][0]} "
                   f"(was {info['pre'][1]/1000:.2f} km)")
