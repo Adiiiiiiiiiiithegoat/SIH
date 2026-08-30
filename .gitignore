@@ -20,6 +20,16 @@ cache/
 
 # App runtime
 app/data/uploads/
+app/data/reports.db
+
+# The backend's own inputs. These four ARE committed: without them a fresh
+# clone cannot start the API at all, and together they are 5.7 MB. Everything
+# else matching the rules above stays excluded -- source rasters, the national
+# WorldPop file, and any regenerated graph elsewhere in the tree.
+!app/data/surathkal_buffered.graphml
+!app/data/population_100m.tif
+!app/data/settlements.csv
+!app/data/reference.json
 
 # Reports / scratch
 report*.txt

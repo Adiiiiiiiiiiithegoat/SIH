@@ -1,0 +1,447 @@
+{
+ "facilities": [
+  {
+   "name": "Chirashree Nursing Home",
+   "named": true,
+   "type": "clinic",
+   "lat": 12.9904033,
+   "lon": 74.7994866
+  },
+  {
+   "name": "Concetta Hospital",
+   "named": true,
+   "type": "hospital",
+   "lat": 13.0658269,
+   "lon": 74.8523989
+  },
+  {
+   "name": "Dr Murthys Eye Care Centre",
+   "named": true,
+   "type": "clinic",
+   "lat": 12.9897301,
+   "lon": 74.8015617
+  },
+  {
+   "name": "Fr Mullers Salvadore Monteiro Rural Health Training Centre",
+   "named": true,
+   "type": "hospital",
+   "lat": 12.9780426,
+   "lon": 74.8819857
+  },
+  {
+   "name": "Haribhat Ayurveda Clinic",
+   "named": true,
+   "type": "hospital",
+   "lat": 13.0452401,
+   "lon": 74.7967561
+  },
+  {
+   "name": "Health Subcenter",
+   "named": true,
+   "type": "clinic",
+   "lat": 13.0094356,
+   "lon": 74.7961309
+  },
+  {
+   "name": "Kateel Shri Durga Sanjeevani Charitable Trust Hospital",
+   "named": true,
+   "type": "hospital",
+   "lat": 13.0479984,
+   "lon": 74.8710386
+  },
+  {
+   "name": "Misquith and Rao's Hospital",
+   "named": true,
+   "type": "hospital",
+   "lat": 12.9836731,
+   "lon": 74.8125078
+  },
+  {
+   "name": "Mulki Government Hospital",
+   "named": true,
+   "type": "hospital",
+   "lat": 13.0875771,
+   "lon": 74.7921684
+  },
+  {
+   "name": "Padmavathi Hospital, Dakshina Kannada",
+   "named": true,
+   "type": "hospital",
+   "lat": 12.9916709,
+   "lon": 74.800406
+  },
+  {
+   "name": "Srinivas Hospital",
+   "named": true,
+   "type": "hospital",
+   "lat": 13.0215272,
+   "lon": 74.7919038
+  },
+  {
+   "name": "St. Ann's Chethana Nursing Home",
+   "named": true,
+   "type": "hospital",
+   "lat": 13.0858336,
+   "lon": 74.795181
+  },
+  {
+   "name": "Surathkal Government Hospital",
+   "named": true,
+   "type": "hospital",
+   "lat": 12.987319,
+   "lon": 74.8036187
+  },
+  {
+   "name": "Venus Hospital, Dakshina Kannada",
+   "named": true,
+   "type": "hospital",
+   "lat": 12.9880718,
+   "lon": 74.8016267
+  },
+  {
+   "name": "Veterinary Hospital Kinnigoli",
+   "named": true,
+   "type": "hospital",
+   "lat": 13.0581567,
+   "lon": 74.8507417
+  }
+ ],
+ "places": [
+  {
+   "name": "<unnamed 6370740124>",
+   "named": false,
+   "type": "hamlet",
+   "lat": 13.0719852,
+   "lon": 74.8595738
+  },
+  {
+   "name": "Adimar",
+   "named": true,
+   "type": "hamlet",
+   "lat": 13.0193805,
+   "lon": 74.8441895
+  },
+  {
+   "name": "Aikala",
+   "named": true,
+   "type": "village",
+   "lat": 13.0793254,
+   "lon": 74.8609502
+  },
+  {
+   "name": "Angaragudde",
+   "named": true,
+   "type": "village",
+   "lat": 13.0750392,
+   "lon": 74.8146535
+  },
+  {
+   "name": "Atiikaribettu",
+   "named": true,
+   "type": "hamlet",
+   "lat": 13.1049418,
+   "lon": 74.8131315
+  },
+  {
+   "name": "Bajavu",
+   "named": true,
+   "type": "hamlet",
+   "lat": 13.0133172,
+   "lon": 74.8428388
+  },
+  {
+   "name": "Balkunje",
+   "named": true,
+   "type": "hamlet",
+   "lat": 13.1063956,
+   "lon": 74.8430905
+  },
+  {
+   "name": "Bhatrakere",
+   "named": true,
+   "type": "village",
+   "lat": 12.9961008,
+   "lon": 74.8865088
+  },
+  {
+   "name": "Chelairu",
+   "named": true,
+   "type": "village",
+   "lat": 13.0272516,
+   "lon": 74.8034406
+  },
+  {
+   "name": "Chitrapu",
+   "named": true,
+   "type": "village",
+   "lat": 13.06897,
+   "lon": 74.7852817
+  },
+  {
+   "name": "Gerukatte",
+   "named": true,
+   "type": "hamlet",
+   "lat": 13.0810647,
+   "lon": 74.8038932
+  },
+  {
+   "name": "Guttakadu",
+   "named": true,
+   "type": "village",
+   "lat": 13.0853096,
+   "lon": 74.846195
+  },
+  {
+   "name": "Haleyangadi",
+   "named": true,
+   "type": "village",
+   "lat": 13.0445586,
+   "lon": 74.7957447
+  },
+  {
+   "name": "Hejamady",
+   "named": true,
+   "type": "village",
+   "lat": 13.1091716,
+   "lon": 74.778277
+  },
+  {
+   "name": "Hejamady Kodi",
+   "named": true,
+   "type": "village",
+   "lat": 13.093731,
+   "lon": 74.7734009
+  },
+  {
+   "name": "Jargekatte",
+   "named": true,
+   "type": "village",
+   "lat": 13.114841,
+   "lon": 74.8801713
+  },
+  {
+   "name": "Kadike",
+   "named": true,
+   "type": "village",
+   "lat": 13.0495889,
+   "lon": 74.7908975
+  },
+  {
+   "name": "Karnad",
+   "named": true,
+   "type": "suburb",
+   "lat": 13.0861613,
+   "lon": 74.7934629
+  },
+  {
+   "name": "Kayar Katte",
+   "named": true,
+   "type": "village",
+   "lat": 13.0018603,
+   "lon": 74.8559493
+  },
+  {
+   "name": "Kenchanakere",
+   "named": true,
+   "type": "hamlet",
+   "lat": 13.0719542,
+   "lon": 74.8115465
+  },
+  {
+   "name": "Kilpady",
+   "named": true,
+   "type": "village",
+   "lat": 13.08445,
+   "lon": 74.8067546
+  },
+  {
+   "name": "Kilpady",
+   "named": true,
+   "type": "village",
+   "lat": 13.0895463,
+   "lon": 74.8048712
+  },
+  {
+   "name": "Kinnigoli",
+   "named": true,
+   "type": "town",
+   "lat": 13.0637099,
+   "lon": 74.8479742
+  },
+  {
+   "name": "Kolachikambala",
+   "named": true,
+   "type": "village",
+   "lat": 13.0845777,
+   "lon": 74.7817694
+  },
+  {
+   "name": "Koncharu",
+   "named": true,
+   "type": "village",
+   "lat": 12.9734577,
+   "lon": 74.8734006
+  },
+  {
+   "name": "Kondemoola",
+   "named": true,
+   "type": "village",
+   "lat": 13.0496366,
+   "lon": 74.872331
+  },
+  {
+   "name": "Krishnapura",
+   "named": true,
+   "type": "suburb",
+   "lat": 13.000141,
+   "lon": 74.8206711
+  },
+  {
+   "name": "Kubevoor",
+   "named": true,
+   "type": "village",
+   "lat": 13.0846626,
+   "lon": 74.8107462
+  },
+  {
+   "name": "Kukkatte",
+   "named": true,
+   "type": "hamlet",
+   "lat": 13.0986268,
+   "lon": 74.8586042
+  },
+  {
+   "name": "Lingappayyakadu",
+   "named": true,
+   "type": "village",
+   "lat": 13.0754025,
+   "lon": 74.8018955
+  },
+  {
+   "name": "Madhya Padavu",
+   "named": true,
+   "type": "village",
+   "lat": 13.011018,
+   "lon": 74.8161009
+  },
+  {
+   "name": "Manampadi",
+   "named": true,
+   "type": "hamlet",
+   "lat": 13.0945506,
+   "lon": 74.801362
+  },
+  {
+   "name": "Mangalapete",
+   "named": true,
+   "type": "village",
+   "lat": 12.9937922,
+   "lon": 74.8389932
+  },
+  {
+   "name": "Mukka",
+   "named": true,
+   "type": "village",
+   "lat": 13.0224436,
+   "lon": 74.7899976
+  },
+  {
+   "name": "Mulki",
+   "named": true,
+   "type": "town",
+   "lat": 13.0904094,
+   "lon": 74.7870474
+  },
+  {
+   "name": "Mundkuru",
+   "named": true,
+   "type": "village",
+   "lat": 13.1247263,
+   "lon": 74.8704478
+  },
+  {
+   "name": "Padmannur",
+   "named": true,
+   "type": "village",
+   "lat": 13.0587397,
+   "lon": 74.8320821
+  },
+  {
+   "name": "Padu Panambur",
+   "named": true,
+   "type": "hamlet",
+   "lat": 13.0556707,
+   "lon": 74.7961863
+  },
+  {
+   "name": "Pakshikere",
+   "named": true,
+   "type": "village",
+   "lat": 13.0458831,
+   "lon": 74.8219981
+  },
+  {
+   "name": "Panjinadka",
+   "named": true,
+   "type": "hamlet",
+   "lat": 13.0981381,
+   "lon": 74.8241287
+  },
+  {
+   "name": "Pavanje",
+   "named": true,
+   "type": "village",
+   "lat": 13.0350246,
+   "lon": 74.7940768
+  },
+  {
+   "name": "Punaroor",
+   "named": true,
+   "type": "village",
+   "lat": 13.0676864,
+   "lon": 74.8187985
+  },
+  {
+   "name": "Sasihitlu",
+   "named": true,
+   "type": "village",
+   "lat": 13.0515116,
+   "lon": 74.7821156
+  },
+  {
+   "name": "Shimanthuru",
+   "named": true,
+   "type": "village",
+   "lat": 13.0897724,
+   "lon": 74.8129671
+  },
+  {
+   "name": "Surathkal",
+   "named": true,
+   "type": "town",
+   "lat": 12.9893484,
+   "lon": 74.8002073
+  },
+  {
+   "name": "Surinje",
+   "named": true,
+   "type": "village",
+   "lat": 13.0226628,
+   "lon": 74.8392534
+  },
+  {
+   "name": "Talipadi",
+   "named": true,
+   "type": "hamlet",
+   "lat": 13.0737908,
+   "lon": 74.8329219
+  },
+  {
+   "name": "Yekkaru",
+   "named": true,
+   "type": "village",
+   "lat": 12.9984,
+   "lon": 74.8801
+  }
+ ]
+}
