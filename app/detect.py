@@ -75,7 +75,12 @@ def _call_deepseek(raw, ext, asset_type):
         config.DEEPSEEK_URL,
         headers={"Authorization": f"Bearer {config.DEEPSEEK_API_KEY}",
                  "Content-Type": "application/json"},
-        json={"model": config.DEEPSEEK_MODEL, "max_tokens": 200,
+        # This model spends part of max_tokens on internal chain-of-thought
+        # before it emits the JSON answer -- observed using all 200 on
+        # reasoning and returning an empty completion. 900 leaves headroom for
+        # both; a request-specific `reasoning_tokens` field would be cleaner
+        # but DeepSeek's OpenAI-compatible endpoint doesn't expose one here.
+        json={"model": config.DEEPSEEK_MODEL, "max_tokens": 900,
               "messages": [{"role": "user", "content": [
                   {"type": "text", "text": _PROMPTS[asset_type]},
                   {"type": "image_url",
