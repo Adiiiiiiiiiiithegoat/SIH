@@ -117,6 +117,13 @@ def reason(report, pocket=None, detour=None):
     asset = report.get("asset_type", "road")
     extra = _corroboration(report.get("n_reports"), report.get("status"))
 
+    # A closed case is finished work, and the road is open again. It must not
+    # still read "Severs a 24-node pocket" -- that sentence describes a live
+    # blockage, and leaving it on a resolved report is how an operator ends up
+    # chasing a road that was cleared hours ago.
+    if report.get("status") == "resolved":
+        return _resolved_reason(report, state, asset)
+
     if asset == "building":
         return _building_reason(report, state, extra)
 
@@ -166,6 +173,17 @@ def reason(report, pocket=None, detour=None):
     near = _nearest_label(report)
     where = f" near {near}" if near else ""
     return _join([f"Blocked road{where}, but alternative routes remain"], extra)
+
+
+def _resolved_reason(report, state, asset):
+    """What a closed case reads as once the work is done."""
+    near = _nearest_label(report)
+    where = f" near {near}" if near else ""
+    if asset == "building":
+        return f"Structure{where} assessed; work reported complete"
+    if state == "impassable":
+        return f"Road{where} reported cleared; no longer blocking access to care"
+    return f"Road{where} assessed and closed; no outstanding access impact"
 
 
 def _building_reason(report, state, extra):

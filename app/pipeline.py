@@ -13,6 +13,14 @@ import threading
 
 from app import priority, severance, store
 
+# A report only holds a road closed while it is still open work. "resolved"
+# means crews finished and the road is open again, so it stops blocking -- that
+# is the whole point of closing a case. "rejected" never blocked in the first
+# place. The difference between the two is history, not effect: a resolved
+# report really happened, a rejected one did not.
+LIVE = ("pending", "in_progress")
+_IN_LIVE = "status IN ('pending', 'in_progress')"
+
 _lock = threading.Lock()
 _state = {"pockets": [], "detours": [], "blocked": [], "elapsed_ms": 0.0}
 
@@ -32,7 +40,7 @@ def blocked_edges():
     rows = store.conn().execute(
         "SELECT DISTINCT edge_id FROM reports "
         "WHERE edge_id IS NOT NULL AND asset_type = 'road' "
-        "AND state = 'impassable' AND status != 'rejected'")
+        f"AND state = 'impassable' AND {_IN_LIVE}")
     return sorted(r["edge_id"] for r in rows)
 
 
@@ -40,7 +48,7 @@ def _corroboration_counts():
     """edge_id -> how many live reports name it. Drives n_reports on all of them."""
     rows = store.conn().execute(
         "SELECT edge_id, COUNT(*) AS c FROM reports "
-        "WHERE edge_id IS NOT NULL AND status != 'rejected' GROUP BY edge_id")
+        f"WHERE edge_id IS NOT NULL AND {_IN_LIVE} GROUP BY edge_id")
     return {r["edge_id"]: r["c"] for r in rows}
 
 
@@ -54,7 +62,7 @@ def _blocking_report_ids():
     for r in store.conn().execute(
             "SELECT id, edge_id FROM reports WHERE edge_id IS NOT NULL "
             "AND asset_type = 'road' AND state = 'impassable' "
-            "AND status != 'rejected' ORDER BY id"):
+            f"AND {_IN_LIVE} ORDER BY id"):
         out.setdefault(r["edge_id"], []).append(r["id"])
     return out
 
@@ -115,7 +123,7 @@ def recompute():
                     pocket = region
                 elif kind == "detour":
                     detour = region
-                elif report["state"] == "unknown" and report["status"] != "rejected":
+                elif report["state"] == "unknown" and report["status"] in LIVE:
                     # Not blocked today, so it is in no pocket. Ask the counter-
                     # factual: if this unassessed road turned out to be blocked,
                     # what would it cost? That is what makes an uninspected road
@@ -163,7 +171,7 @@ def roads():
     for r in store.conn().execute(
             "SELECT edge_id, state, MAX(priority_score) AS s FROM reports "
             "WHERE edge_id IS NOT NULL AND asset_type = 'road' "
-            "AND status != 'rejected' GROUP BY edge_id, state"):
+            f"AND {_IN_LIVE} GROUP BY edge_id, state"):
         # impassable beats unknown beats passable when a road has mixed reports
         rank = {"impassable": 3, "unknown": 2, "passable": 1}
         if rank.get(r["state"], 0) > rank.get(reported.get(r["edge_id"], ""), 0):

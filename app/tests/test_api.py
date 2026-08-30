@@ -223,12 +223,75 @@ def test_rejecting_a_report_removes_its_blockage(client):
     assert client.get("/api/pockets").json() == []
 
 
-def test_confirming_a_report_raises_its_priority(client):
+def test_accepting_a_report_raises_its_priority(client):
+    """Accepting a report -- crews are on it -- is an operator vouching for it,
+    and outranks any number of citizen reports."""
     report = create(client, *SEVERING_POINT, state="impassable")
     before = report["priority_score"]
     after = client.post(f"/api/reports/{report['id']}/status",
-                        json={"status": "resolved"}).json()["priority_score"]
+                        json={"status": "in_progress"}).json()["priority_score"]
     assert after == pytest.approx(before * config.CONFIRMATION_BOOST, rel=1e-3)
+
+
+def test_closing_a_case_clears_the_road_it_was_holding_shut(client):
+    """The headline figures must move when an operator closes a case. Resolved
+    means the work is done and the road is open, so the pocket it severed is
+    reconnected and the report stops counting as an impassable road."""
+    report = create(client, *SEVERING_POINT, state="impassable")
+    assert len(client.get("/api/pockets").json()) == 1
+    roads = {r["edge_id"]: r for r in client.get("/api/roads").json()}
+    assert roads[report["edge_id"]]["state"] == "impassable"
+
+    closed = client.post(f"/api/reports/{report['id']}/status",
+                         json={"status": "resolved"}).json()
+
+    assert client.get("/api/pockets").json() == [], "areas cut off must drop to 0"
+    roads = {r["edge_id"]: r for r in client.get("/api/roads").json()}
+    assert roads[report["edge_id"]]["state"] == "passable", \
+        "roads impassable must drop -- the span is open again"
+    assert closed["priority_score"] == 0.0
+    assert "cleared" in closed["priority_reason"]
+    assert "Severs" not in closed["priority_reason"], \
+        "a closed case must not still claim to be severing anything"
+
+
+def test_work_in_progress_still_holds_the_road_shut(client):
+    """Crews being on it is not the road being open. Only closing clears it."""
+    report = create(client, *SEVERING_POINT, state="impassable")
+    client.post(f"/api/reports/{report['id']}/status", json={"status": "in_progress"})
+    assert len(client.get("/api/pockets").json()) == 1
+    roads = {r["edge_id"]: r for r in client.get("/api/roads").json()}
+    assert roads[report["edge_id"]]["state"] == "impassable"
+
+
+def test_reopening_a_closed_case_restores_the_blockage(client):
+    """The operator can be wrong about a road being clear, so closing must be
+    reversible and the figures must come back."""
+    report = create(client, *SEVERING_POINT, state="impassable")
+    client.post(f"/api/reports/{report['id']}/status", json={"status": "resolved"})
+    assert client.get("/api/pockets").json() == []
+
+    reopened = client.post(f"/api/reports/{report['id']}/status",
+                           json={"status": "pending"}).json()
+    assert len(client.get("/api/pockets").json()) == 1
+    assert reopened["priority_score"] > 0
+    assert "Severs" in reopened["priority_reason"]
+
+
+def test_a_closed_report_stops_corroborating_a_live_one(client):
+    """A fixed blockage is not evidence the road is blocked now, so it must not
+    inflate the corroboration count on a report that is still open."""
+    first = create(client, *SEVERING_POINT, state="impassable")
+    second = create(client, *SEVERING_MIDSPAN, state="impassable")
+    assert client.get(f"/api/reports/{second['id']}").json()["n_reports"] == 2
+
+    client.post(f"/api/reports/{first['id']}/status", json={"status": "resolved"})
+    still_open = client.get(f"/api/reports/{second['id']}").json()
+    assert still_open["n_reports"] == 1
+    assert still_open["priority_score"] > 0, "the live report still blocks the road"
+    edges = client.get("/api/pockets").json()[0]["severing_edges"]
+    assert edges[0]["report_ids"] == [second["id"]], \
+        "a closed report is no longer a cause of the pocket"
 
 
 # --- end to end -----------------------------------------------------------

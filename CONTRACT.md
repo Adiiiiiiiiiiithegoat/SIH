@@ -18,12 +18,17 @@ Field values:
 - `detection_mode`: `api` | `model` | `manual`
 - `status`: `pending` | `in_progress` | `resolved` | `rejected`
   - `pending` — awaiting an operator's assessment.
-  - `in_progress` — accepted; crews are working it. Still blocks the network.
-  - `resolved` — the work is done. Still blocks the network: resolved means the
-    report was confirmed, not that the road was cleared.
-  - `rejected` — the operator says this is not real. Does not block, is excluded
-    from severance, corroboration and every headline figure.
-  Any status may move to any other; the operator decides.
+  - `in_progress` — accepted; crews are working it. Still blocks the network,
+    and counts as operator confirmation, which raises the report's priority.
+  - `resolved` — the work is done and the road is open again. Stops blocking:
+    the pocket it severed reconnects, its span returns to `passable`, and it
+    stops corroborating other reports on the same span.
+  - `rejected` — the operator says this is not real. Also stops blocking.
+  Only `pending` and `in_progress` hold a road closed. The difference between
+  `resolved` and `rejected` is history, not effect: a resolved report really
+  happened and was fixed, a rejected one never happened.
+  Any status may move to any other; the operator decides. Closing is reversible
+  — moving a report back to `pending` restores the blockage and the figures.
 
 ## Road record
 
