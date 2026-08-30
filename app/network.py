@@ -168,9 +168,39 @@ class Network:
             hw = hw[0] if hw else None
         return str(hw) if hw else None
 
+    def span_bridge(self, eid):
+        """True if any segment of the span is tagged as a bridge.
+
+        Any segment, not the longest one: a span that is part bridge is a
+        bridge for the purpose of "why is this cut off" -- that is the bit that
+        washes out. OSM writes the tag as "yes", a structure type, or a list.
+        """
+        for u, v, k, d in self.spans.get(eid, []):
+            b = d.get("bridge")
+            if b is None:
+                continue
+            for value in (b if isinstance(b, list) else [b]):
+                if str(value).strip().lower() not in ("", "no", "false"):
+                    return True
+        return False
+
     def span_length(self, eid):
         segs = self.spans.get(eid, [])
         return max((float(s[3].get("length", 0) or 0) for s in segs), default=0.0)
+
+    def span_record(self, eid):
+        """Everything the map needs to draw and label one span, in one lookup.
+
+        The dashboard highlights the edges responsible for a severed pocket, so
+        it needs the geometry and the label together -- a second round trip per
+        edge just to render a highlight is the thing this avoids.
+        """
+        return {"edge_id": eid,
+                "name": self.span_name(eid),
+                "length_m": round(self.span_length(eid), 1),
+                "highway": self.span_highway(eid),
+                "bridge": self.span_bridge(eid),
+                "coordinates": self.span_coords(eid)}
 
     def span_coords(self, eid):
         """The span's real geometry as [[lat, lon], ...], following the OSM

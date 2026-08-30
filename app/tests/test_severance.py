@@ -141,3 +141,38 @@ def test_query_is_under_the_500ms_budget(network, known_edge):
     severance.analyse(blocked)                      # warm any lazy import
     timings = [severance.analyse(blocked)["elapsed_ms"] for _ in range(3)]
     assert min(timings) < 500, f"severance query too slow: {timings} ms"
+
+
+# --- severing edges on the pocket record ---------------------------------
+def test_known_span_is_exactly_the_pockets_severing_edge(network, known_pocket, known_edge):
+    """The 507 m span at (13.01087,74.81183)->(13.01229,74.80747) is the only
+    thing cutting this pocket off, so it must be the only edge named -- not a
+    superset that would have an operator checking roads that are still open."""
+    assert [e["edge_id"] for e in known_pocket["severing_edges"]] == [known_edge]
+
+    u, v = (int(x) for x in known_edge.split("-"))
+    assert (u in known_pocket["nodes"]) != (v in known_pocket["nodes"]), \
+        "a severing edge straddles the pocket boundary: one endpoint in, one out"
+
+
+def test_severing_edges_carry_enough_to_draw_without_a_second_lookup(known_pocket):
+    edge = known_pocket["severing_edges"][0]
+    assert set(edge) == {"edge_id", "name", "length_m", "highway",
+                         "bridge", "coordinates", "report_ids"}
+    assert edge["length_m"] == pytest.approx(506.9, abs=0.1), "the sweep's 507 m span"
+    assert edge["highway"] == "unclassified"
+    assert edge["bridge"] is True, "the sweep recorded this span as bridge-tagged"
+    assert len(edge["coordinates"]) >= 2
+    for lat, lon in edge["coordinates"]:
+        assert 12.9 < lat < 13.2 and 74.7 < lon < 74.9, "coordinates are (lat, lon)"
+
+
+def test_an_edge_that_does_not_touch_the_pocket_is_not_listed(network, known_edge):
+    """Blocking an unrelated road elsewhere must not get credited with this
+    pocket -- attribution is per-edge, not "everything blocked right now"."""
+    unrelated = edge_id(network.nearest_node(13.0904, 74.7871),
+                        next(iter(network.graph.neighbors(
+                            network.nearest_node(13.0904, 74.7871)))))
+    result = severance.analyse([known_edge, unrelated])
+    pocket = next(p for p in result["pockets"] if p["n_nodes"] == 5)
+    assert [e["edge_id"] for e in pocket["severing_edges"]] == [known_edge]

@@ -44,6 +44,21 @@ def _corroboration_counts():
     return {r["edge_id"]: r["c"] for r in rows}
 
 
+def _blocking_report_ids():
+    """edge_id -> the live report ids asserting that edge is impassable.
+
+    These are the reports a pocket exists because of, so the dashboard can go
+    from a cut-off area straight to the photos behind it.
+    """
+    out = {}
+    for r in store.conn().execute(
+            "SELECT id, edge_id FROM reports WHERE edge_id IS NOT NULL "
+            "AND asset_type = 'road' AND state = 'impassable' "
+            "AND status != 'rejected' ORDER BY id"):
+        out.setdefault(r["edge_id"], []).append(r["id"])
+    return out
+
+
 def _attribute(result):
     """edge_id -> the pocket or detour region it is responsible for.
 
@@ -55,8 +70,8 @@ def _attribute(result):
     """
     by_edge = {}
     for p in result["pockets"]:
-        for eid in p["severing_edges"]:
-            by_edge.setdefault(eid, ("pocket", p))
+        for edge in p["severing_edges"]:
+            by_edge.setdefault(edge["edge_id"], ("pocket", p))
     for d in result["detours"]:
         nodes = set(d["nodes"])
         for eid in result["blocked"]:
@@ -76,6 +91,14 @@ def recompute():
     with _lock:
         blocked = blocked_edges()
         result = severance.analyse(blocked)
+
+        # The severance engine knows nothing about reports, so the link from a
+        # severing edge back to the reports that blocked it is stitched on here.
+        by_report = _blocking_report_ids()
+        for pocket in result["pockets"]:
+            for edge in pocket["severing_edges"]:
+                edge["report_ids"] = by_report.get(edge["edge_id"], [])
+
         by_edge = _attribute(result)
         counts = _corroboration_counts()
         frozen = tuple(blocked)
@@ -107,6 +130,11 @@ def recompute():
             score = None
             if report["status"] == "rejected":
                 reason = "Rejected by an operator; not counted in the network picture"
+            elif report["asset_type"] == "road" and not eid:
+                # Unbindable, so never assessed against the network. Leave the
+                # score null: the dashboard files a null under "not yet ranked",
+                # which is what this is. A 0.0 would read as "harmless".
+                reason = priority.reason(report)
             else:
                 score = priority.score(
                     report["state"], report["confidence"], pop, severed, added_km,

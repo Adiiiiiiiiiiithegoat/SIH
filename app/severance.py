@@ -150,7 +150,13 @@ def _assess(n, comp, pairs):
         "prior_access_km": round(lost[1] / 1000.0, 2) if lost else None,
         "nearest_place": place,
         "nearest_place_km": round(place_m / 1000.0, 2) if place_m is not None else None,
-        "severing_edges": [edge_id(u, v) for u, v in sev],
+        # The blocked spans straddling this pocket -- what an operator is
+        # actually looking at when they ask why an area is cut off. Carried in
+        # full (label + geometry) so the map can highlight them without a
+        # second lookup per edge. report_ids are attached by the pipeline,
+        # which is the layer that knows about reports.
+        "severing_edges": [dict(n.span_record(edge_id(u, v)), report_ids=[])
+                           for u, v in sev],
         "checks": checks,
     }
 

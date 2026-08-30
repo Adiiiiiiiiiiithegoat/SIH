@@ -175,8 +175,12 @@ def test_a_photo_report_goes_through_the_detection_stub(client):
     report = r.json()
     assert report["detection_mode"] == config.DETECTION_MODE
     assert report["confidence"] == config.STUB_CONFIDENCE
-    assert report["image_path"].startswith("/uploads/")
     assert report["gps_accuracy_m"] is None, "an empty form field is absent, not 0"
+    # Absolute, not "/uploads/...": the dashboard drops image_path straight into
+    # <img src>, which resolves against the PAGE origin. On a separate frontend
+    # dev server a relative path 404s on every thumbnail.
+    assert report["image_path"].startswith("http://testserver/uploads/")
+    assert client.get(report["image_path"]).status_code == 200, "the image must fetch"
 
 
 def test_an_operator_can_override_the_edge_binding(client, network):
@@ -253,7 +257,7 @@ def test_end_to_end_a_new_report_binds_recomputes_and_reorders_the_queue(client)
     pockets = client.get("/api/pockets").json()
     assert len(pockets) == 1
     assert pockets[0]["n_nodes"] == 5
-    assert expected in pockets[0]["severing_edges"]
+    assert [e["edge_id"] for e in pockets[0]["severing_edges"]] == [expected]
 
     # 3. the queue reordered -- the severing report is now on top
     queue = client.get("/api/reports").json()
@@ -280,3 +284,74 @@ def test_end_to_end_resolving_the_top_report_keeps_the_picture_consistent(client
     assert queue[-1]["id"] == top["id"], "a rejected report sinks to the bottom"
     roads = {r["edge_id"]: r for r in client.get("/api/roads").json()}
     assert roads[top["edge_id"]]["state"] == "passable"
+
+
+def test_a_road_report_that_binds_to_nothing_says_so(client):
+    """A report the binder could not place on any span was never assessed
+    against the network. It must not claim the network absorbed it, and it must
+    not score 0 -- 0 reads as "harmless", when the truth is "unassessed"."""
+    report = create(client, 13.05, 74.60, state="impassable")   # out at sea
+    assert report["edge_id"] is None
+    assert report["priority_score"] is None, "unbound is unranked, not zero"
+    assert "Not matched to a road span" in report["priority_reason"]
+    assert "alternative routes remain" not in report["priority_reason"]
+
+
+def test_a_caller_supplied_image_path_is_left_alone(client):
+    """A manual report pointing at a frontend asset must not be rewritten into
+    an API URL -- only our own /uploads/ paths are ours to rewrite."""
+    report = create(client, *QUIET_POINT, state="impassable",
+                    image_path="mocks/images/report-6.svg")
+    assert report["image_path"] == "mocks/images/report-6.svg"
+
+
+def test_pocket_severing_edges_link_back_to_the_reports_behind_them(client):
+    """A pocket must name the reports that caused it, so an operator can go
+    from a cut-off area straight to the photos."""
+    first = create(client, *SEVERING_POINT, state="impassable")
+    second = create(client, *SEVERING_MIDSPAN, state="impassable")
+
+    pockets = client.get("/api/pockets").json()
+    assert len(pockets) == 1
+    edges = pockets[0]["severing_edges"]
+    assert [e["edge_id"] for e in edges] == [first["edge_id"]]
+    assert edges[0]["report_ids"] == [first["id"], second["id"]]
+
+
+def test_a_rejected_report_stops_backing_the_pocket_it_caused(client):
+    """Rejecting one of two reports leaves the pocket standing but must drop
+    that report from the list of what is holding the road closed."""
+    first = create(client, *SEVERING_POINT, state="impassable")
+    second = create(client, *SEVERING_MIDSPAN, state="impassable")
+    client.post(f"/api/reports/{first['id']}/status", json={"status": "rejected"})
+
+    pockets = client.get("/api/pockets").json()
+    assert len(pockets) == 1, "the second report still blocks the road"
+    assert pockets[0]["severing_edges"][0]["report_ids"] == [second["id"]]
+
+
+def test_an_unknown_state_report_does_not_claim_to_have_caused_a_pocket(client):
+    """Only an impassable report blocks a road. An unassessed one on the same
+    span must not appear as a cause."""
+    blocking = create(client, *SEVERING_POINT, state="impassable")
+    create(client, *SEVERING_MIDSPAN, state="unknown")
+    pockets = client.get("/api/pockets").json()
+    assert pockets[0]["severing_edges"][0]["report_ids"] == [blocking["id"]]
+
+
+def test_pocket_record_matches_the_field_list_in_contract_md(client):
+    """CONTRACT.md is the shared reference the frontend builds against, so a
+    field added or renamed here must be reflected there in the same change."""
+    import os, re
+    from app import config
+
+    doc = open(os.path.join(config.ROOT, "CONTRACT.md"), encoding="utf-8").read()
+    section = doc.split("## Pocket record")[1].split("## Endpoints")[0]
+    listed = [{f.strip() for f in block.replace("\n", " ").split(",") if f.strip()}
+              for block in re.findall(r"```\n(.*?)\n```", section, re.S)]
+
+    create(client, *SEVERING_POINT, state="impassable")
+    pocket = client.get("/api/pockets").json()[0]
+    assert set(pocket) == listed[0], "pocket fields differ from CONTRACT.md"
+    assert set(pocket["severing_edges"][0]) == listed[1], \
+        "severing_edges fields differ from CONTRACT.md"
