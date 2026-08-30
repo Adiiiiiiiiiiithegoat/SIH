@@ -15,7 +15,7 @@ Field values:
 - `asset_type`: `road` | `building`
 - `state` (road): `passable` | `impassable` | `unknown`
 - `state` (building): `damaged` | `not_damaged` | `unknown`
-- `detection_mode`: `api` | `model` | `manual`
+- `detection_mode`: `api` | `manual`
 - `status`: `pending` | `in_progress` | `resolved` | `rejected`
   - `pending` — awaiting an operator's assessment.
   - `in_progress` — accepted; crews are working it. Still blocks the network,
@@ -35,7 +35,7 @@ Field values:
 Returned by `GET /api/roads`, one per undirected span in the network.
 
 ```
-edge_id, coordinates, state, name, highway, length_m
+edge_id, coordinates, state, name, highway, bridge, length_m
 ```
 
 - `edge_id`: `"<node_u>-<node_v>"`, stable for the life of the graph.
@@ -47,6 +47,9 @@ edge_id, coordinates, state, name, highway, length_m
   Rejected reports do not count.
 - `name`: display string; `"<unnamed>"` when the way carries no name or ref,
   `"<unknown>"` when the span is not in the graph. Never null.
+- `bridge`: true if **any** segment of the span is tagged as a bridge — a span
+  that is part bridge is the part that washes out. Same rule as the pocket
+  record's `severing_edges[].bridge` below.
 - `highway`: raw OSM class, or null when the way is untagged. Observed values
   in this graph: `trunk`, `primary`, `secondary`, `tertiary`, `residential`,
   `unclassified`, `living_street`, and the `*_link` ramp variants. Consumers

@@ -20,6 +20,13 @@ SEVERING_MIDSPAN = (13.01158, 74.80965)
 # A quiet through road far from it, used as the low-priority control.
 QUIET_POINT = (13.0904, 74.7871)
 
+_JPEG_HEAD = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00"
+
+
+def jpeg(body=b""):
+    """Bytes that pass main._looks_like_image; `body` varies the sha1."""
+    return _JPEG_HEAD + body + b"\xff\xd9"
+
 
 def create(client, lat, lon, **extra):
     """Post a report the way the operator's map click does -- JSON, no photo."""
@@ -38,7 +45,7 @@ def test_report_record_is_exactly_the_contract_fields(client):
 def test_contract_enumerations_are_honoured(client):
     road = create(client, *QUIET_POINT, state="impassable")
     assert road["state"] in ("passable", "impassable", "unknown")
-    assert road["detection_mode"] in ("api", "model", "manual")
+    assert road["detection_mode"] in ("api", "manual")
     assert road["status"] == "pending"
 
     building = create(client, 13.0224, 74.7900, asset_type="building", state="damaged")
@@ -91,14 +98,16 @@ def test_roads_returns_every_edge_with_state_and_coordinates(client, network):
     roads = client.get("/api/roads").json()
     assert len(roads) == len(network.spans)
     for road in roads[:50]:
-        assert set(road) == {"edge_id", "coordinates", "state", "name", "highway", "length_m"}
+        assert set(road) == {"edge_id", "coordinates", "state", "name", "highway", "bridge", "length_m"}
         assert road["state"] in ("passable", "impassable", "unknown")
         assert len(road["coordinates"]) >= 2
         lat, lon = road["coordinates"][0]
         assert 12.9 < lat < 13.2 and 74.7 < lon < 74.9, "coordinates are (lat, lon)"
         # The map weights line thickness by class, so it must be a plain string.
         assert road["highway"] is None or isinstance(road["highway"], str)
+        assert isinstance(road["bridge"], bool)
     assert any(r["highway"] == "trunk" for r in roads), "the trunk network is classed"
+    assert any(r["bridge"] for r in roads), "at least one real bridge in the network"
 
 
 def test_a_reported_road_shows_its_state_on_the_roads_layer(client):
@@ -127,7 +136,6 @@ def test_no_blockages_means_no_pockets(client):
 # --- settings -------------------------------------------------------------
 def test_settings_expose_the_locked_weights(client):
     s = client.get("/api/settings").json()
-    assert s["detection_mode"] in ("api", "model", "manual")
     assert s["population_exponent"] == config.POPULATION_EXPONENT == 0.4
     assert s["disconnect_penalty"] == config.DISCONNECT_PENALTY == 300
     assert s["assumed_speed_kmh"] == config.ASSUMED_SPEED_KMH == 35
@@ -146,11 +154,6 @@ def test_settings_can_be_changed_live_and_rescore_the_queue(client):
         client.post("/api/settings", json={"disconnect_penalty": original})
 
 
-def test_bad_detection_mode_is_rejected(client):
-    assert client.post("/api/settings",
-                       json={"detection_mode": "psychic"}).status_code == 422
-
-
 # --- manual reports and overrides ----------------------------------------
 def test_a_manual_report_is_a_normal_record(client):
     """An operator's map click must produce the same shape as a photo report --
@@ -167,7 +170,7 @@ def test_a_manual_report_is_a_normal_record(client):
 def test_a_photo_report_goes_through_the_detection_stub(client):
     """No real detector yet, so the stub decides the state -- and the record
     must carry the mode it ran in."""
-    files = {"image": ("road.jpg", io.BytesIO(b"not-a-real-jpeg"), "image/jpeg")}
+    files = {"image": ("road.jpg", io.BytesIO(jpeg(b"stub-case")), "image/jpeg")}
     r = client.post("/api/reports", files=files,
                     data={"lat": str(SEVERING_POINT[0]), "lon": str(SEVERING_POINT[1]),
                           "gps_accuracy_m": "", "asset_type": "road"})
@@ -181,6 +184,47 @@ def test_a_photo_report_goes_through_the_detection_stub(client):
     # dev server a relative path 404s on every thumbnail.
     assert report["image_path"].startswith("http://testserver/uploads/")
     assert client.get(report["image_path"]).status_code == 200, "the image must fetch"
+
+
+def test_the_same_photo_submitted_twice_is_deduplicated(client):
+    """A double-tapped submit (or a forwarded file) must not become two queue
+    rows -- the second POST returns the first report unchanged."""
+    def post(body):
+        return client.post(
+            "/api/reports",
+            files={"image": ("road.jpg", io.BytesIO(jpeg(body)), "image/jpeg")},
+            data={"lat": str(SEVERING_POINT[0]), "lon": str(SEVERING_POINT[1]),
+                  "asset_type": "road"})
+
+    first = post(b"same")
+    assert first.status_code == 200, first.text
+    second = post(b"same")
+    assert second.status_code == 200, second.text
+    assert second.json()["id"] == first.json()["id"]
+    assert len(client.get("/api/reports").json()) == 1
+
+    # A different photo at the same spot is still its own report.
+    other = post(b"different")
+    assert other.json()["id"] != first.json()["id"]
+    assert len(client.get("/api/reports").json()) == 2
+
+
+def test_a_non_image_upload_is_rejected(client):
+    r = client.post(
+        "/api/reports",
+        files={"image": ("notes.pdf", io.BytesIO(b"%PDF-1.4 not an image"), "image/jpeg")},
+        data={"lat": str(QUIET_POINT[0]), "lon": str(QUIET_POINT[1]), "asset_type": "road"})
+    assert r.status_code == 422, r.text
+    assert client.get("/api/reports").json() == []
+
+
+def test_an_oversize_upload_is_rejected(client):
+    big = jpeg(b"\x00" * (config.MAX_UPLOAD_BYTES + 1))
+    r = client.post(
+        "/api/reports",
+        files={"image": ("huge.jpg", io.BytesIO(big), "image/jpeg")},
+        data={"lat": str(QUIET_POINT[0]), "lon": str(QUIET_POINT[1]), "asset_type": "road"})
+    assert r.status_code == 413, r.text
 
 
 def test_an_operator_can_override_the_edge_binding(client, network):

@@ -15,6 +15,7 @@ APP = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(APP)
 DATA = os.path.join(APP, "data")
 UPLOADS = os.path.join(DATA, "uploads")
+FRONTEND = os.path.join(ROOT, "frontend")
 
 # ponytail: no dotenv dependency for a 5-line KEY=VALUE reader.
 _env_path = os.path.join(ROOT, ".env")
@@ -70,6 +71,12 @@ EDGE_TOL_M = 250.0          # this close to the download boundary => clip artifa
 # dashboard. Same NH66 blockage: 526 nodes affected at 500 m, 441 at 3 km.
 DETOUR_THRESHOLD_M = 500.0  # added distance worth reporting as a detour
 
+# --- uploads ------------------------------------------------------------
+# A phone photo is 2-8 MB; 25 leaves headroom without letting a bad client
+# post a video. Enforced in main.create_report against the bytes actually read.
+MAX_UPLOAD_MB = 25
+MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
+
 # --- edge binding ---------------------------------------------------------
 DEFAULT_GPS_ACCURACY_M = 25.0   # used when a report carries no accuracy
 MIN_BIND_RADIUS_M = 10.0        # never search a radius tighter than this
@@ -100,19 +107,19 @@ ASSUMED_SPEED_KMH = 35
 ASSUMED_POCKET_POPULATION = 50.0   # stand-in when the raster has no data there
 
 # --- detection ------------------------------------------------------------
-DETECTION_MODE = "model"      # api | model | manual -- live-adjustable
+DETECTION_MODE = "api"        # api | manual -- fixed, no trained "model" mode exists
 STUB_CONFIDENCE = 0.72        # placeholder until a real detector plugs in
 
-# mode="api" only: DeepSeek vision, key from .env (never committed). Default
-# stays "model" so tests and a fresh clone stay fully offline -- flip to "api"
-# live via POST /api/settings for a demo.
+# No DEEPSEEK_API_KEY, or the call fails, and detect() falls back to the
+# "unknown" stub -- so a fresh clone and pytest stay fully offline with no
+# extra flag needed. Key from .env (never committed).
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 DEEPSEEK_MODEL = "deepseek-v4-flash-vision-exp"
 DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
 DETECT_CACHE = os.path.join(ROOT, "cache", "detect")   # keyed by image sha1
 
 # Keys a client may change through POST /api/settings.
-MUTABLE = ("DETECTION_MODE", "POPULATION_EXPONENT", "DISCONNECT_PENALTY",
+MUTABLE = ("POPULATION_EXPONENT", "DISCONNECT_PENALTY",
            "UNKNOWN_BELIEF", "CORROBORATION_WEIGHT", "CONFIRMATION_BOOST",
            "ASSUMED_SPEED_KMH", "DEFAULT_GPS_ACCURACY_M", "DETOUR_THRESHOLD_M",
            "MIN_POCKET_NODES", "MIN_HULL_KM2", "MAX_PRIOR_ACCESS_M",

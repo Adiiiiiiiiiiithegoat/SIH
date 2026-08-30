@@ -7,6 +7,7 @@ layer all live under app/data/.
     uvicorn app.main:app --reload
 """
 import datetime
+import hashlib
 import os
 import shutil
 import uuid
@@ -84,6 +85,57 @@ def _save_image(upload):
     return f"/uploads/{name}"
 
 
+_IMAGE_MAGIC = (
+    b"\xff\xd8\xff",              # jpeg
+    b"\x89PNG\r\n\x1a\n",         # png
+    b"GIF87a", b"GIF89a",         # gif
+)
+
+
+def _looks_like_image(raw):
+    """A cheap trust-boundary check: does the upload actually start like an
+    image? Covers jpeg/png/gif by signature and webp/heic by their container
+    box, which is all a phone camera produces. Not a decoder -- a corrupt jpeg
+    still passes here and becomes an "unknown" downstream, which is fine."""
+    if raw.startswith(_IMAGE_MAGIC):
+        return True
+    if raw[:4] == b"RIFF" and raw[8:12] == b"WEBP":
+        return True
+    if raw[4:8] == b"ftyp":      # heic/heif and other ISO-BMFF stills
+        return True
+    return False
+
+
+def _sha1_file(path):
+    full = os.path.join(config.UPLOADS, os.path.basename(path or ""))
+    try:
+        with open(full, "rb") as fh:
+            return hashlib.sha1(fh.read()).hexdigest()
+    except OSError:
+        return None
+
+
+def _live_dup(raw):
+    """An existing pending/in-progress report whose photo is byte-identical to
+    this upload -- the same report submitted twice (double-tapped submit, a
+    forwarded file, a browser retry). Returns it so the caller can hand back the
+    original instead of inserting a second row.
+
+    Rehashes the live set on each photo POST; fine at operator-queue scale.
+    ponytail: rehash-on-check, add an indexed image_sha1 column if the live
+    report set ever gets large.
+    """
+    digest = hashlib.sha1(raw).hexdigest()
+    rows = store.conn().execute(
+        "SELECT id FROM reports WHERE image_path IS NOT NULL "
+        "AND status IN ('pending', 'in_progress')")
+    for r in rows:
+        rec = store.get(r["id"])
+        if _sha1_file(rec["image_path"]) == digest:
+            return rec
+    return None
+
+
 def _exif_bearing(path):
     """GPSImgDirection from the photo, if the camera recorded one.
 
@@ -129,6 +181,17 @@ async def create_report(
     asset = data.get("asset_type") or "road"
     if asset not in ("road", "building"):
         raise HTTPException(422, "asset_type must be 'road' or 'building'")
+
+    if image is not None and image.filename:
+        raw = await image.read()
+        await image.seek(0)
+        if len(raw) > config.MAX_UPLOAD_BYTES:
+            raise HTTPException(413, f"image over {config.MAX_UPLOAD_MB} MB")
+        if not _looks_like_image(raw):
+            raise HTTPException(422, "not a recognised image (jpeg, png, webp, heic, gif)")
+        dup = _live_dup(raw)
+        if dup is not None:
+            return _public(dup, request)   # same photo, already in the queue
 
     image_path = _save_image(image) or data.get("image_path")
     accuracy = _f(data.get("gps_accuracy_m"))
@@ -248,21 +311,14 @@ def detours():
 def get_settings():
     """Every live-adjustable constant, so the dashboard can show what the
     scores were computed with."""
-    return {"detection_mode": config.DETECTION_MODE,
-            **{k.lower(): getattr(config, k) for k in config.MUTABLE
-               if k != "DETECTION_MODE"}}
+    return {k.lower(): getattr(config, k) for k in config.MUTABLE}
 
 
 @app.post("/api/settings")
 async def set_settings(request: Request):
     body = await request.json()
-    if "detection_mode" in body:
-        mode = body["detection_mode"]
-        if mode not in ("api", "model", "manual"):
-            raise HTTPException(422, "detection_mode must be api, model or manual")
-        config.DETECTION_MODE = mode
     for key in config.MUTABLE:
-        if key == "DETECTION_MODE" or key.lower() not in body:
+        if key.lower() not in body:
             continue
         try:
             setattr(config, key, type(getattr(config, key))(body[key.lower()]))
@@ -273,3 +329,13 @@ async def set_settings(request: Request):
     severance.hypothetical.cache_clear()
     pipeline.recompute()
     return get_settings()
+
+
+# --- frontend ---------------------------------------------------------------
+# Optional: lets one process serve both the API and the static pages, so a
+# deployment behind a reverse proxy is one origin instead of two and needs no
+# CORS at all. Mounted last and at "/" so it never shadows a route above --
+# Starlette matches in registration order, and a root mount matches every
+# path that nothing more specific already claimed.
+if os.path.isdir(config.FRONTEND):
+    app.mount("/", StaticFiles(directory=config.FRONTEND, html=True), name="frontend")

@@ -182,5 +182,6 @@ def roads():
              "state": reported.get(eid, "passable"),
              "name": n.span_name(eid),
              "highway": n.span_highway(eid),
+             "bridge": n.span_bridge(eid),
              "length_m": round(n.span_length(eid), 1)}
             for eid in n.spans]

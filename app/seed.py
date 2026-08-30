@@ -1,7 +1,7 @@
 """Seed 25 varied reports across the report bbox so the dashboard has content.
 
 Deliberately mixed: real severing spans, ordinary roads, buildings, all three
-states, all three detection modes, corroborated edges, and one report with no
+states, both detection modes, corroborated edges, and one report with no
 GPS accuracy at all. That spread is what makes the queue ordering visible during
 development.
 
@@ -31,7 +31,7 @@ SPREAD = [
 
 ROAD_STATES = ["impassable", "unknown", "passable"]
 BUILDING_STATES = ["damaged", "unknown", "not_damaged"]
-MODES = ["model", "api", "manual"]
+MODES = ["api", "manual"]
 
 
 def _midpoint(a, b, jitter, rng):
@@ -55,7 +55,7 @@ def build():
                          "asset_type": "road",
                          "state": "impassable" if j < 2 else "unknown",
                          "confidence": [0.91, 0.84, 0.55][j],
-                         "detection_mode": MODES[j],
+                         "detection_mode": MODES[j % len(MODES)],
                          "bearing": [None, 95.0, None][j]})
 
     # 7-25: a spread of ordinary reports across the bbox.
@@ -68,7 +68,7 @@ def build():
             "asset_type": "building" if building else "road",
             "state": (BUILDING_STATES if building else ROAD_STATES)[i % 3],
             "confidence": round(0.58 + (i % 9) * 0.042, 2),
-            "detection_mode": MODES[i % 3],
+            "detection_mode": MODES[i % len(MODES)],
             "bearing": float((i * 47) % 360) if i % 3 == 0 else None,
         })
 

@@ -1,8 +1,8 @@
 """The one seam where damage detection plugs in.
 
-Nothing else in the backend knows how a state is decided. mode="model" is
-still a placeholder (no trained model exists); mode="api" calls DeepSeek
-vision and no caller changes.
+Nothing else in the backend knows how a state is decided. mode="api" calls
+DeepSeek vision; no trained model exists, so there is no mode="model" -- an
+API failure or a missing key falls back to the same "unknown" stub.
 
     detect(image_path, mode) -> {"state", "confidence", "asset_type",
                                  "detection_mode"}
@@ -136,8 +136,6 @@ def detect(image_path, mode=None, asset_type="road", state=None):
         except Exception:
             pass  # network/parse failure -- an unusable image is "unknown"
 
-    # ponytail: placeholder for mode="model" (no trained model exists) and any
-    # api failure -- deliberately constant, see module docstring.
+    # ponytail: no key, or the call above failed -- deliberately constant stub.
     return {"state": "unknown", "confidence": config.STUB_CONFIDENCE,
-            "asset_type": asset_type,
-            "detection_mode": mode if mode in ("api", "model") else "model"}
+            "asset_type": asset_type, "detection_mode": "api"}
