@@ -2,8 +2,10 @@
 
 Brain-dump for a fresh session. Read this before touching anything. It replaces a
 long planning conversation — verify claims against the code if something looks off
-rather than trusting this file blindly. Written 2026-08-30, updated same day after
-integration work landed — see "Current state" for what changed.
+rather than trusting this file blindly. Written 2026-08-30, updated twice same
+day: once after integration work landed, again after upload validation,
+duplicate-photo suppression, and UI for the three previously backend-only
+endpoints (re-bind, tuning, detours) — see "Current state" for what changed.
 
 ## What this is
 
@@ -94,11 +96,26 @@ still carrying the old silent-zero behavior — check before touching either.)
 
 ## Current state (verified 2026-08-30, don't trust an older claim)
 
-**Backend**: complete, `94 passed` via `pytest app/tests -q` (was 88 earlier
-the same day; the operator-workflow endpoints below added 6 tests). Runs
-offline by default: `uvicorn app.main:app --host 127.0.0.1 --port 8001`.
-Endpoints match `CONTRACT.md` exactly, plus `GET /api/roads`,
-`GET /api/pockets`, `GET /api/detours`.
+**Backend**: complete, `99 passed` via `pytest app/tests -q` (was 88 earlier
+the same day; 94 after the operator-workflow endpoints; the last 5 are photo
+upload validation and duplicate-photo suppression, both below). Runs offline
+by default: `uvicorn app.main:app --host 127.0.0.1 --port 8001`. Endpoints
+match `CONTRACT.md` exactly, plus `GET /api/roads`, `GET /api/pockets`,
+`GET /api/detours`. `main.py` also optionally mounts `frontend/` at `/`, so a
+real deployment can run one process for both the API and the static pages —
+same-origin, no CORS — while local dev keeps the two-port split below.
+
+**`POST /api/reports` now guards the upload itself, not just what happens
+after.** A signature check (jpeg/png/gif/webp/heic magic bytes) rejects a
+non-image with 422; anything over 25 MB (`config.MAX_UPLOAD_MB`) is rejected
+with 413 — both checked against the bytes already read for the next thing:
+**the same photo submitted twice — a double-tapped submit, a forwarded
+file — no longer becomes two queue rows.** The upload is sha1-hashed and
+matched against every live (`pending`/`in_progress`) report's stored image;
+a match returns the existing report instead of inserting a new one. A
+*different* photo of the same span still files its own report and
+corroborates normally via `n_reports` — this only catches byte-identical
+resubmits, not "two people photographed the same washout."
 
 Two standalone verification scripts exist outside `app/tests` and are worth
 re-running after any change to `binding.py`, `severance.py`, or `config.py`
@@ -127,12 +144,40 @@ road. Twice bitten.
 
 The frontend added a real operator console since the original version of this
 doc: priority-tiered queue (CRITICAL/HIGH/LOW/No impact), a Leaflet map with
-severed-pocket popups ("est. NNN cut off · Why?"), status tabs
-(Pending/In progress/Closed), and a detection-mode selector. It matches the
-CONTRACT.md workflow additions above. This was the user's own work, done
+severed-pocket popups ("est. NNN cut off · Why?"), and status tabs
+(Pending/In progress/Closed). It matches the CONTRACT.md workflow additions
+above. It briefly had a detection-mode selector (api/model toggle) too, but
+that was removed once DeepSeek became the only real detector — see below.
+This was the user's own work, done
 concurrently with the integration work below — if a session mid-edit
 disappears files from `frontend/`, that's very possibly just someone actively
 saving, not corruption; ask before restoring anything from git.
+
+**Every CONTRACT.md endpoint now has a UI path, not just an API.** Three
+things that existed only as backend endpoints — reachable by curl, not by an
+operator — got a dashboard control each:
+- **Re-bind a mis-bound photo.** The report panel's "Road binding" row has a
+  "Change binding" button that fetches `GET /api/reports/{id}` (the only
+  request that carries `bind_candidates`), offers them in a picker labelled
+  by road name and distance, and calls `POST /api/reports/{id}/edge` on
+  apply. Verified against a live report with a genuinely ambiguous GPS fix:
+  a 7-candidate picker, re-bind applied, queue and map re-rendered correctly.
+- **Tuning panel.** A "Tuning" button in the top bar renders the 12
+  `config.MUTABLE` constants (`GET /api/settings`) as plain number inputs;
+  saving `POST`s them and re-ranks the queue live.
+- **Detour zones on the map.** `GET /api/detours` was computed and already
+  drove a report's `priority_reason` text, but the regions themselves were
+  never drawn. Now an opt-in "Detour zones" layer-control overlay, off by
+  default (amber, dashed) so it never competes with the severed-pocket
+  polygons, which are the headline.
+
+Also since the original doc: the product renamed **Responda → NETRA** on
+both pages; the queue gained a Ref column and bridges/buildings-damaged
+figures (hidden when zero); a full-screen photo lightbox; and explicit
+"Loading map…" / "Loading reports…" states instead of a blank flash on
+first paint. `frontend/mocks/data.js` grew matching fixtures (`detours`, a
+non-empty `settings` object) so `dashboard.html` still runs standalone with
+`USE_MOCKS: true` and none of this breaks the offline demo fallback.
 
 **Detection is now real, not just a seam.** `app/detect.py` mode="api" calls
 DeepSeek's vision model (`deepseek-v4-flash-vision-exp`, OpenAI-compatible
@@ -142,24 +187,24 @@ at `cache/detect/<sha1-of-image-bytes>.json` (gitignored) so a repeated photo
 never hits the network twice — this is the "cached vision-API detection" the
 plan called for. The key lives in a gitignored `.env` at repo root
 (`DEEPSEEK_API_KEY=...`), loaded by a ~5-line reader in `app/config.py`
-(no `python-dotenv` dependency added). **Default `DETECTION_MODE` in
-`app/config.py` is still `"model"`** (the stub) — deliberately left unchanged
-so a fresh clone and `pytest` stay fully offline; flip it live with
-`POST /api/settings {"detection_mode": "api"}` per session (this does not
-persist across a backend restart — it's in-memory `config.DETECTION_MODE`,
-reset to `"model"` every time the process restarts). Any API failure
-(network, bad JSON, anything) falls back to the same constant stub silently —
-by design, per the existing "never raises" contract.
+(no `python-dotenv` dependency added).
+
+**The `mode="model"` stub and its live toggle are gone.** There was never a
+trained model behind it — it was a `state="unknown"` placeholder from before
+DeepSeek was wired up — and keeping it as a selectable option was the exact
+footgun that reset silently to the stub on every backend restart (see the
+now-removed "What is not done" bullet about it). `config.DETECTION_MODE` is
+now a fixed `"api"`, not in `MUTABLE`, and `POST /api/settings` no longer
+accepts a `detection_mode` key at all. Offline stays safe with zero flags:
+no `DEEPSEEK_API_KEY` (or a failed call) still falls through to the same
+`"unknown"` stub inside `detect()`, so a fresh clone and `pytest` are fully
+offline by default. `mode="manual"` is unchanged: echoes the operator's
+asserted state at full confidence.
 
 Verified live against the two locked demo photos (see below): DeepSeek
 correctly called both `impassable` (0.95 and 1.0 confidence), both bound to
 the exact right edge, both pockets came back with the exact populations from
 `demo_data.txt` (681.6 and 26.7).
-
-`mode="model"` is still the placeholder stub it always was: `state="unknown"`,
-`confidence=STUB_CONFIDENCE` (0.72), deliberately constant. `mode="manual"`
-is real and unchanged: echoes the operator's asserted state at full
-confidence.
 
 The MEDIC dataset download was abandoned: `medic/raw/dl_progress.log` shows all
 8 parts stuck at `0/1358896324, retrying`, and `medic/data/` is empty. It needed
@@ -167,44 +212,48 @@ roughly 7 of the remaining 8 hours at the time, so it was cut. Unaffected by the
 DeepSeek work above — MEDIC was for a trained model, DeepSeek is a hosted API,
 they were never the same plan.
 
-**`app/data/reports.db` currently holds exactly two reports** — the two
-canonical demo cases below, freshly uploaded through the real photo → API →
-bind → recompute path, nothing else. It had accumulated ~25 mixed test
-reports from both manual API testing and browser testing before being reset;
-it's gitignored and trivial to wipe again (`rm app/data/reports.db`, restart
-uvicorn) if it gets cluttered before rehearsal.
+**`app/data/reports.db` is local, gitignored runtime state — not part of the
+repo.** Running `python -m app.demo_seed` wipes it and loads the current
+11-photo demo set (see "The demo" below for the two headline cases within
+it); running it again is idempotent. Trivial to wipe by hand too
+(`rm app/data/reports.db`, restart uvicorn) if it gets cluttered with ad-hoc
+test reports before rehearsal.
 
-**Uncommitted, untracked at repo root**: `REPORT.md`, `PROJECT_STATE.md`,
-`demo_data.py`, `demo_data.txt`, `verify_binding.py`, `verify_engine.py` — none
-of this is committed yet. `.env` is untracked and gitignored (correctly —
-never commit it).
+**Repo is clean.** `REPORT.md`, `PROJECT_STATE.md`, `demo_data.py`,
+`demo_data.txt`, `verify_binding.py`, `verify_engine.py`, `app/demo_seed.py`,
+and `app/data/demo_images/` are all committed — a fresh clone can run the
+tests, the verify scripts, and seed the live demo with no missing file. Only
+`.env` sits outside version control, gitignored on purpose.
 
 ## What is not done
 
-- **Real demo photography.** Everything above was verified with two
-  *synthetic* placeholder JPEGs (PIL-drawn, EXIF-tagged via `piexif` at the
-  exact two demo coordinates) — they proved the pipeline works, they are not
-  presentable demo assets. Actual phone photos taken at or near
-  `13.017102, 74.795375` (item 1) and `13.012206, 74.807704` (item 2), or any
-  photo whose visible content matches "impassable road," need to replace them
-  before the real run. Same upload path, same caching — nothing else changes.
+- **Real demo photography.** The two synthetic PIL-drawn placeholders are
+  gone — `app/demo_seed.py` (committed) now loads 11 real disaster photos
+  from `app/data/demo_images/` (8 damage, 3 clear-road; freely licensed,
+  credited in that folder's `CREDITS.md`) pinned to real Surathkal-Mulki
+  coordinates, with verdicts pinned into the detect cache for offline
+  determinism. Still not photos of *this* area — Japan, Greece, Turkey,
+  Bengaluru stand-ins wearing local coordinates. Fine for the pinned/cached
+  playback path; only bites if someone uploads a fresh photo of their own
+  during the demo and expects a locally-grounded answer. Actual phone photos
+  of Surathkal-Mulki would close this properly; same upload path either way.
 - **The demo has never been rehearsed**, live or dry-run, start to finish in
-  front of anyone.
-- Detection mode resets to `"model"` on every backend restart (in-memory
-  setting) — whoever runs the rehearsal needs to flip it to `"api"` again each
-  time the server restarts, or it'll silently demo the stub instead of the
-  real model. Worth a one-line startup script if this trips someone up twice.
+  front of anyone. This is the one item on this list that actually matters —
+  everything else here is now either done or a known, low-risk stand-in.
 
 ## The plan for remaining time
 
 1. ~~Integration testing first~~ — **done.** Frontend and backend are
    connected and verified end-to-end in a real browser, not just by API call.
-2. ~~Cached vision-API detection on demo photos~~ — **done for the two
-   canonical demo cases**, DeepSeek wired and cached. Extending to a full
-   ~10-photo demo set is still open, gated on having real photos to run
-   through it (see above).
-3. **Rehearsal, repeatedly** — next up, not started.
-4. **Keep two hours of buffer.**
+2. ~~Cached vision-API detection on demo photos~~ — **done**, extended past
+   the original two cases to an 11-photo set (`app/demo_seed.py`), all
+   pinned and cached for offline determinism.
+3. ~~Every CONTRACT.md endpoint reachable from the operator console~~ —
+   **done.** Edge re-binding, the tuning panel, and the detour-zone overlay
+   were backend-only; all three now have a UI, verified live.
+4. **Rehearsal, repeatedly** — next up, not started. The one thing left that
+   isn't already done.
+5. **Keep two hours of buffer.**
 
 ## The demo
 
