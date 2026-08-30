@@ -10,11 +10,13 @@ Scoring, highest wins:
 
     score = (1 - d / radius) * (1 + BEARING_WEIGHT * perpendicularity)
 
-`d` is the perpendicular distance from the report to the segment. The bearing
+`d` is the distance from the report to the span's real polyline
+geometry, not to a straight line between its endpoints. The bearing
 term applies only when EXIF gives a compass direction: a photographer facing a
 blocked road stands across it, so the edge running roughly perpendicular to the
 camera is the one being photographed. A parallel edge gets no bonus.
 """
+import functools
 import math
 
 from app import config
@@ -29,6 +31,38 @@ def _point_segment_m(plat, plon, alat, alon, blat, blon, coslat):
     t = 0.0 if denom == 0 else max(0.0, min(1.0, (px * bx + py * by) / denom))
     dx, dy = px - t * bx, py - t * by
     return math.hypot(dx, dy) * M_PER_DEG
+
+
+@functools.lru_cache(maxsize=None)
+def _polyline(eid):
+    """The span's real geometry as ((lat, lon), ...), cached.
+
+    Cached because candidates() asks for dozens of spans per report and
+    span_coords rebuilds the list each call.
+    """
+    return tuple((float(a), float(b)) for a, b in net().span_coords(eid))
+
+
+def _span_distance(n, eid, u, v, plat, plon):
+    """Distance from a report to a span's ACTUAL geometry, not its chord.
+
+    Measuring to the straight endpoint chord is wrong wherever a road bends:
+    a point standing on the carriageway of the 507 m Madhya Padavu span sits
+    34.4 m from that span's chord, which is outside the radius a good GPS fix
+    produces. Reports then mis-bind to a straighter neighbour, or bind only
+    because candidates() widens to MAX_BIND_RADIUS_M -- which throws away the
+    accuracy radius the whole design rests on.
+
+    A two-point geometry is a straight line, so this reduces exactly to the
+    previous endpoint-to-endpoint calculation.
+    """
+    pts = _polyline(eid)
+    if len(pts) < 2:
+        (ax, ay), (bx, by) = n.pos[int(u)], n.pos[int(v)]
+        return _point_segment_m(plat, plon, ay, ax, by, bx, n.coslat)
+    return min(_point_segment_m(plat, plon, pts[i][0], pts[i][1],
+                                pts[i + 1][0], pts[i + 1][1], n.coslat)
+               for i in range(len(pts) - 1))
 
 
 def _span_bearing(n, eid):
@@ -65,8 +99,7 @@ def candidates(lat, lon, gps_accuracy_m=None, bearing=None):
             if eid in seen:
                 continue
             seen.add(eid)
-            (ax, ay), (bx, by) = n.pos[int(u)], n.pos[int(v)]
-            d = _point_segment_m(lat, lon, ay, ax, by, bx, n.coslat)
+            d = _span_distance(n, eid, u, v, lat, lon)
             if d > radius:
                 continue
             proximity = 1.0 - d / radius            # 1 at the point, 0 at the rim

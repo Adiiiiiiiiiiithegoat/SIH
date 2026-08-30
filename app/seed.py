@@ -79,7 +79,10 @@ def build():
                                             row["gps_accuracy_m"], row["bearing"])
         status = "resolved" if k % 9 == 4 else "rejected" if k % 11 == 7 else "pending"
         store.insert(
-            image_path=f"/uploads/seed-{k + 1:02d}.jpg",
+            # The frontend's own placeholder art, exactly as the mock used. A
+            # seeded report has no real photo, and inventing /uploads/seed-NN.jpg
+            # just gave the dashboard 25 broken thumbnails.
+            image_path=f"mocks/images/report-{k % 6 + 1}.svg",
             created_at=(now - datetime.timedelta(minutes=17 * (len(rows) - k))).isoformat(),
             edge_id=edge, n_reports=1, status=status, priority_score=None,
             priority_reason=None, bind_candidates=candidates, **row)

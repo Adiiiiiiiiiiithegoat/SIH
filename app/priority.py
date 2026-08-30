@@ -23,6 +23,12 @@ def belief(state, confidence, n_reports=1, status="pending"):
     tells you far more than the sixth -- so it saturates rather than stacking.
     An operator confirming the report is worth more than any number of citizen
     reports, but still cannot push belief past certainty.
+
+    ``n_reports=0`` is meaningful and distinct from 1: it is a HYPOTHETICAL
+    blockage nobody has reported, which the offline sweep scores. The formula
+    handles it directly -- 0.6 + 0.4 * (1 - 0.5**0) = 0.6 -- so a hypothetical
+    is damped below a single real report rather than borrowing its
+    corroboration. ``None`` still means "unspecified" and defaults to 1.
     """
     if state == "impassable" or state == "damaged":
         base = float(confidence or 0.0)
@@ -31,7 +37,7 @@ def belief(state, confidence, n_reports=1, status="pending"):
     else:                                   # passable / not_damaged
         return 0.0
 
-    n = max(1, int(n_reports or 1))
+    n = 1 if n_reports is None else max(0, int(n_reports))
     base *= 0.6 + config.CORROBORATION_WEIGHT * (1 - 0.5 ** n)
     if status == "resolved":
         base *= config.CONFIRMATION_BOOST
@@ -138,6 +144,16 @@ def reason(report, pocket=None, detour=None):
         if pop:
             parts[0] += f" for {_people(pop, detour.get('population_source'))}"
         return _join(parts, extra)
+
+    # A road report that never landed on a span was not assessed against the
+    # network at all. Saying "alternative routes remain" here would assert a
+    # conclusion we never computed -- the honest answer is that an operator has
+    # to place it before anything can be said about consequence.
+    if "edge_id" in report and not report["edge_id"]:
+        near = _nearest_label(report)
+        where = f" near {near}" if near else ""
+        return _join([f"Not matched to a road span{where}; "
+                      "place it on the map to assess access impact"], extra)
 
     # No pocket and no detour: the network absorbs this blockage.
     if state == "unknown":

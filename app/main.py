@@ -60,6 +60,20 @@ async def _payload(request, form_fields):
     return body if isinstance(body, dict) else {}
 
 
+def _public(report, request):
+    """Rewrite a stored upload path into a URL the browser can actually fetch.
+
+    The dashboard puts image_path straight into <img src>, which the browser
+    resolves against the PAGE's origin -- not the API's. Same-origin that is
+    harmless, but with the frontend on its own dev server every thumbnail 404s.
+    Only our own /uploads/ paths are rewritten; a path the caller supplied
+    (a manual report pointing at a frontend asset) is left exactly as given.
+    """
+    if report and str(report.get("image_path") or "").startswith("/uploads/"):
+        report = dict(report, image_path=str(request.base_url).rstrip("/") + report["image_path"])
+    return report
+
+
 def _save_image(upload):
     if upload is None or not getattr(upload, "filename", ""):
         return None
@@ -141,20 +155,20 @@ async def create_report(
         bearing=bearing_v, bind_candidates=candidates)
 
     pipeline.recompute()
-    return store.get(report_id)
+    return _public(store.get(report_id), request)
 
 
 @app.get("/api/reports")
-def list_reports(status: str = None):
-    return store.all_reports(status)
+def list_reports(request: Request, status: str = None):
+    return [_public(r, request) for r in store.all_reports(status)]
 
 
 @app.get("/api/reports/{report_id}")
-def get_report(report_id: int):
+def get_report(report_id: int, request: Request):
     report = store.get(report_id, full=True)
     if report is None:
         raise HTTPException(404, "no such report")
-    return report
+    return _public(report, request)
 
 
 @app.post("/api/reports/{report_id}/status")
@@ -167,7 +181,7 @@ async def set_status(report_id: int, request: Request):
         raise HTTPException(404, "no such report")
     store.update(report_id, status=status)
     pipeline.recompute()
-    return store.get(report_id)
+    return _public(store.get(report_id), request)
 
 
 @app.post("/api/reports/{report_id}/edge")
@@ -186,7 +200,7 @@ async def override_edge(report_id: int, request: Request):
         raise HTTPException(422, f"no edge {edge!r} in the road network")
     store.update(report_id, edge_id=edge)
     pipeline.recompute()
-    return store.get(report_id, full=True)
+    return _public(store.get(report_id, full=True), request)
 
 
 # --- map layers -----------------------------------------------------------
