@@ -51,6 +51,14 @@ assert.equal(placeLabel({ display_name: "Just One Thing" }).detail, "");
   }, 40);
 })();
 
+/* --- basemap config: both pages must share one look, no Leaflet needed to check it --- */
+["map", "satellite"].forEach(function (key) {
+  const b = AppUtils.BASEMAPS[key];
+  assert.ok(b && b.url && b.attribution, key + " basemap has a url and attribution");
+  ["{z}", "{x}", "{y}"].forEach(ph => assert.ok(b.url.includes(ph), key + " url has a " + ph + " placeholder"));
+});
+assert.notEqual(AppUtils.BASEMAPS.map.url, AppUtils.BASEMAPS.satellite.url);
+
 /* --- map colours come from the semantic token set, not per-component hexes --- */
 assert.equal(AppUtils.markerColor("impassable"), AppUtils.COLORS.bad);
 assert.equal(AppUtils.markerColor("damaged"), AppUtils.COLORS.bad);
@@ -98,6 +106,32 @@ assert.equal(AppUtils.nextStatuses("nonsense").length, 0);
 // A lane never offers the lane it is already in.
 ["pending", "in_progress", "resolved", "rejected"].forEach(v =>
   assert.ok(!AppUtils.nextStatuses(v).includes(v), v + " does not offer itself"));
+
+// A closed case does not hold a road shut -- the one rule the map, the pins and
+// the headline figures share with app/pipeline.LIVE.
+assert.equal(AppUtils.isLive({ status: "pending" }), true);
+assert.equal(AppUtils.isLive({ status: "in_progress" }), true);
+assert.equal(AppUtils.isLive({ status: "resolved" }), false);
+assert.equal(AppUtils.isLive({ status: "rejected" }), false);
+assert.equal(AppUtils.isLive(null), false);
+
+// Reopening a closed case is not accepting a new one; a button that says
+// "Accept — start work" on a resolved report is how a cleared road gets
+// reopened by reflex.
+["pending", "in_progress", "resolved", "rejected"].forEach(function (from) {
+  AppUtils.nextStatuses(from).forEach(function (to) {
+    const text = AppUtils.actionLabel(from, to);
+    assert.ok(text && text.length, from + " -> " + to + " has a label");
+    assert.ok(!/^Accept/.test(text) || from === "pending",
+      "only a pending report is accepted, got " + JSON.stringify(text) + " on " + from);
+  });
+});
+assert.equal(AppUtils.actionLabel("pending", "in_progress"), "Accept — start work");
+assert.ok(/Reopen/.test(AppUtils.actionLabel("resolved", "in_progress")));
+assert.ok(/Reopen/.test(AppUtils.actionLabel("resolved", "pending")));
+assert.ok(/Reinstate/.test(AppUtils.actionLabel("rejected", "pending")));
+// An unlisted move still renders as words, never "undefined".
+assert.ok(!/undefined/.test(AppUtils.actionLabel("nonsense", "pending")));
 
 assert.equal(AppUtils.statusClass("pending"), "warn");
 assert.equal(AppUtils.statusClass("in_progress"), "ok");
@@ -175,7 +209,10 @@ const pockets = [
   { id: "b", population: 3653, population_source: "raster" }
 ];
 let summary = AppUtils.impactSummary(reports, pockets);
-assert.equal(summary.roadsImpassable, 2, "distinct spans, dismissed excluded, buildings excluded");
+// Only edge-1's PENDING report counts. A resolved case means the road was
+// cleared, so counting it here is what put "2 roads impassable" on the
+// dashboard beside a single cut-off area.
+assert.equal(summary.roadsImpassable, 1, "closed and dismissed excluded, buildings excluded");
 assert.equal(summary.areasSevered, 2);
 assert.equal(summary.peopleAffected, 12073);
 assert.equal(summary.estimated, true);
@@ -211,6 +248,14 @@ assert.equal(AppUtils.impactSummary([
   { id: 7, asset_type: "road", state: "impassable", status: "pending", edge_id: null },
   { id: 8, asset_type: "road", state: "impassable", status: "pending", edge_id: null }
 ], []).roadsImpassable, 2);
+
+// The headline can never claim more cut roads than the backend is blocking on:
+// resolving the last live report on a span drops it out of the count.
+const oneSpan = [{ id: 9, asset_type: "road", state: "impassable", status: "pending", edge_id: "edge-9" }];
+assert.equal(AppUtils.impactSummary(oneSpan, [{ id: "p", population: 682, population_source: "raster" }]).roadsImpassable, 1);
+assert.equal(AppUtils.impactSummary([Object.assign({}, oneSpan[0], { status: "resolved" })], []).roadsImpassable, 0);
+assert.equal(AppUtils.impactSummary([Object.assign({}, oneSpan[0], { status: "in_progress" })], []).roadsImpassable, 1,
+  "accepting a report does not clear the road");
 
 /* --- mock fixtures back the demo --- */
 const mock = context.window.MOCK_DATA;

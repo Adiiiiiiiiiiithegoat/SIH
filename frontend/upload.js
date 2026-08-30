@@ -7,6 +7,19 @@
 
   const map = L.map("locator", { zoomControl: false, attributionControl: false }).setView(home, 12);
   L.control.zoom({ position: "topright" }).addTo(map);
+  L.control.attribution({ prefix: false, position: "bottomright" }).addTo(map);
+
+  // Positron by default -- pale enough that the marker and the drawn road
+  // network stay the thing your eye lands on. Satellite is one click away,
+  // same toggle Google Maps uses, for when the imagery itself is the point.
+  const B = U.BASEMAPS;
+  const baseLayer = L.tileLayer(B.map.url, Object.assign({ attribution: B.map.attribution }, B.map.options)).addTo(map);
+  const satLayer = L.tileLayer(B.satellite.url, Object.assign({ attribution: B.satellite.attribution }, B.satellite.options));
+  L.control.layers({ "Map": baseLayer, "Satellite": satLayer }, null, { position: "topright", collapsed: false }).addTo(map);
+  // Our drawn road network is thin light-gray lines -- built to be recessive
+  // against a pale basemap, so it needs a white halo to stay visible once
+  // that basemap is a busy satellite photo instead.
+  map.on("baselayerchange", e => map.getContainer().classList.toggle("sat-mode", e.name === "Satellite"));
 
   // Our own marker, so nothing loads Leaflet's default PNGs.
   const icon = L.divIcon({

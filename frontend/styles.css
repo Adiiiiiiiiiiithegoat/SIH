@@ -163,6 +163,11 @@ table { border-collapse: collapse; width: 100% }
 .topbar :focus-visible { outline: 2px solid var(--flag-navy); outline-offset: 1px }
 .topbar a { color: var(--flag-navy); font-size: var(--t-sm); font-weight: 600 }
 .topbar a:hover { text-decoration-thickness: 2px }
+/* Not --bad red here: this sits on saffron, and the header's own rule above
+   is that red-on-saffron is exactly the low-contrast pairing to avoid --
+   dark ink, bold, is what actually reads as "look at this" on this ground. */
+.sync-status { color: rgba(0, 0, 0, .58) }
+.sync-status.warn { color: var(--ink); font-weight: 700 }
 
 /* ============================================================ Impact strip */
 
@@ -363,17 +368,49 @@ tr[aria-selected="true"].band-critical td:first-child { box-shadow: inset 3px 0 
 .hint.on { display: block }
 .mapwrap.placing .leaflet-container { cursor: crosshair }
 
+/* Every line and pin here was tuned to read against the pale, near-white
+   Positron ground (see COLORS.neutral in app.js). A satellite photo is
+   neither pale nor flat, so the same colours need a white halo to stay
+   legible over it -- tiles are <img> elements, so this only ever touches
+   our own drawn canvas/svg content, never the imagery underneath. */
+.leaflet-container.sat-mode canvas,
+.leaflet-container.sat-mode .leaflet-overlay-pane svg {
+  filter: drop-shadow(0 0 1.5px #fff) drop-shadow(0 0 1.5px #fff);
+}
+
+/* Leaflet's own control chrome, restyled to the flat/square rest of the map
+   controls instead of its default rounded white pill. */
+.leaflet-control-layers {
+  border: 1px solid var(--rule-strong);
+  border-radius: 0;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .12);
+  font-size: var(--t-sm);
+}
+.leaflet-control-layers-toggle { border-radius: 0 }
+.leaflet-control-layers label { margin: 2px 0 }
+.leaflet-control-attribution { font-size: 10px }
+
 .pin {
   width: 11px; height: 11px;
   border: 2px solid #fff;
   box-shadow: 0 0 0 1px currentColor;
+  transition: box-shadow 1s ease-out;
 }
 .pin.road { border-radius: 50% }
 .pin.building { transform: rotate(45deg) }
-.pocket { fill: var(--bad); fill-opacity: .10; stroke: var(--bad); stroke-width: 1.5; cursor: pointer }
+.pocket {
+  fill: var(--bad); fill-opacity: .10; stroke: var(--bad); stroke-width: 1.5;
+  cursor: pointer; transition: fill-opacity .3s, stroke-width .3s;
+}
 .pocket:hover, .pocket.on { fill-opacity: .2; stroke-width: 2.5 }
 .cut { stroke: var(--bad) }
 .cut.on { stroke-width: 6 }
+
+/* A one-shot highlight for a pocket or pin that appeared since the last
+   refresh -- a CSS transition back to normal, not a looping animation. This
+   product's rule is no keyframes; this still draws the eye without one. */
+.pin.new { box-shadow: 0 0 0 5px currentColor }
+.pocket.new { fill-opacity: .4; stroke-width: 3.5 }
 
 /* ============================================================ Detail */
 

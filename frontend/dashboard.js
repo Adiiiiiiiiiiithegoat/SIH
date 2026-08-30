@@ -8,7 +8,17 @@
   const map = L.map("map", { zoomControl: false, attributionControl: false })
     .fitBounds([[bbox.south, bbox.west], [bbox.north, bbox.east]]);
   L.control.zoom({ position: "topright" }).addTo(map);
+  L.control.attribution({ prefix: false, position: "bottomright" }).addTo(map);
   map.createPane("areas").style.zIndex = 390;
+
+  // Positron by default, satellite one click away -- same toggle Google Maps
+  // uses. The drawn network and pockets need a white halo once the ground
+  // under them is a photo instead of a pale basemap; see .sat-mode in CSS.
+  const B = U.BASEMAPS;
+  const baseLayer = L.tileLayer(B.map.url, Object.assign({ attribution: B.map.attribution }, B.map.options)).addTo(map);
+  const satLayer = L.tileLayer(B.satellite.url, Object.assign({ attribution: B.satellite.attribution }, B.satellite.options));
+  L.control.layers({ "Map": baseLayer, "Satellite": satLayer }, null, { position: "topright", collapsed: false }).addTo(map);
+  map.on("baselayerchange", e => map.getContainer().classList.toggle("sat-mode", e.name === "Satellite"));
 
   // 6,000+ spans: the base network is canvas or the map will not pan.
   const netR = L.canvas({ padding: 0.3 }).addTo(map);
@@ -20,6 +30,7 @@
   const pinL = L.layerGroup().addTo(map);
   const areaShapes = new Map();
   const cutShapes = new Map();
+  const pinShapes = new Map();
 
   const S = {
     reports: [], roads: [], pockets: [],
@@ -30,10 +41,13 @@
 
   /* ------------------------------------------------------------------ map */
 
+  // The legend calls this layer "Reported, open" -- so a closed case must not
+  // paint its span. A resolved road is open again and a dismissed one was
+  // never shut; either one left highlighted reads as live damage.
   function reportedEdges() {
     const set = new Set();
     S.reports.forEach(r => {
-      if (r.asset_type === "road" && r.edge_id && r.status !== "rejected") set.add(r.edge_id);
+      if (r.asset_type === "road" && r.edge_id && U.isLive(r)) set.add(r.edge_id);
     });
     return set;
   }
@@ -110,19 +124,46 @@
 
   function drawPins() {
     pinL.clearLayers();
+    pinShapes.clear();
     S.reports.forEach(function (r) {
       if (r.status === "rejected") return;
-      const colour = U.markerColor(r.state);
-      L.marker([r.lat, r.lon], {
+      // A resolved case keeps its pin -- the report happened -- but not the
+      // red of a road that is still cut.
+      const colour = U.isLive(r) ? U.markerColor(r.state) : C.neutral;
+      const marker = L.marker([r.lat, r.lon], {
         icon: L.divIcon({
           className: "",
           html: '<div class="pin ' + r.asset_type + '" style="background:' + colour + ';color:' + colour + '"></div>',
           iconSize: [11, 11], iconAnchor: [6, 6]
         })
       })
-        .bindTooltip(U.label("asset_type", r.asset_type) + " · " + U.stateLabel(r.state))
+        .bindTooltip(U.label("asset_type", r.asset_type) + " · " + U.stateLabel(r.state) +
+          (U.isLive(r) ? "" : " · " + U.label("status_short", r.status)))
         .on("click", () => openReport(r.id))
         .addTo(pinL);
+      pinShapes.set(r.id, marker);
+    });
+  }
+
+  // A one-shot highlight (CSS transition, not a looping animation -- this
+  // product's design rule is no keyframes) so a report or pocket that just
+  // appeared between refreshes catches the eye without redrawing anything.
+  function flashOnce(node) {
+    if (!node) return;
+    node.classList.add("new");
+    setTimeout(() => node.classList.remove("new"), 3000);
+  }
+  function flashChanges(prevPocketIds, prevReportIds) {
+    if (prevPocketIds) S.pockets.forEach(function (p) {
+      if (prevPocketIds.has(p.id)) return;
+      const shape = areaShapes.get(p.id);
+      flashOnce(shape && shape._path);
+    });
+    if (prevReportIds) S.reports.forEach(function (r) {
+      if (prevReportIds.has(r.id)) return;
+      const marker = pinShapes.get(r.id);
+      const wrap = marker && marker.getElement && marker.getElement();
+      flashOnce(wrap && wrap.querySelector(".pin"));
     });
   }
 
@@ -267,13 +308,6 @@
     return S.pockets.filter(p => U.severingEdgeIds(p).indexOf(report.edge_id) !== -1);
   }
 
-  const ACTION_LABEL = {
-    in_progress: "Accept — start work",
-    resolved: "Mark resolved",
-    pending: "Send back to pending",
-    rejected: "Dismiss"
-  };
-
   function openReport(id, fromPocket) {
     const r = S.reports.find(x => x.id === id);
     if (!r) return;
@@ -334,7 +368,7 @@
         ? moves.map((next, i) =>
             '<button type="button" class="btn ' +
             (next === "rejected" ? "btn-danger" : i === 0 ? "btn-primary" : "") +
-            '" data-act="' + next + '">' + ACTION_LABEL[next] + "</button>").join("")
+            '" data-act="' + next + '">' + U.escape(U.actionLabel(r.status, next)) + "</button>").join("")
         : '<span class="note">No moves available.</span>') +
       "</div></div>" +
 
@@ -535,33 +569,71 @@
     if (e.key === "Escape" && (S.placing || detail.classList.contains("open"))) closeDetail();
   });
 
+  let lastSyncedAt = null, syncOk = true;
+
+  function setSync(text, kind) {
+    const node = el("syncStatus");
+    if (!node) return;
+    node.textContent = text;
+    node.className = "sync-status" + (kind ? " " + kind : "");
+  }
+
   function tick() {
     const now = new Date();
     el("clock").textContent = "Surathkal · " +
       now.toLocaleDateString(undefined, { day: "2-digit", month: "short" }) + " " +
       now.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+    // Only the clock ticks during an outage -- overwriting the warning with a
+    // freshly stale "Synced Xs ago" would hide the one thing worth flagging.
+    if (syncOk && lastSyncedAt) setSync("Synced " + U.timeAgo(new Date(lastSyncedAt).toISOString()));
   }
 
   /* ------------------------------------------------------------------ load */
 
+  let loading = false, knownPocketIds = null, knownReportIds = null;
+
   async function load() {
-    const [reports, roads, pockets] = await Promise.all([API.getReports(), API.getRoads(), API.getPockets()]);
-    S.reports = reports;
-    S.roads = roads;
-    S.pockets = pockets;
-    drawRoads();
-    drawAreas();
-    drawPins();
-    drawQueue();
-    drawImpact();
-    if (S.pocket) {
-      const open = S.pockets.find(p => p.id === S.pocket);
-      if (open) highlight(open); else closeDetail();
+    // A 20 s auto-refresh and a manual action's own load() can land close
+    // together; both would fetch the same authoritative state, so the second
+    // is just wasted network, not a correctness risk -- skip it rather than
+    // let two in-flight loads redraw over each other.
+    if (loading) return;
+    loading = true;
+    setSync("Syncing…");
+    try {
+      const [reports, roads, pockets] = await Promise.all([API.getReports(), API.getRoads(), API.getPockets()]);
+      S.reports = reports;
+      S.roads = roads;
+      S.pockets = pockets;
+      drawRoads();
+      drawAreas();
+      drawPins();
+      drawQueue();
+      drawImpact();
+      if (S.pocket) {
+        const open = S.pockets.find(p => p.id === S.pocket);
+        if (open) highlight(open); else closeDetail();
+      }
+      flashChanges(knownPocketIds, knownReportIds);
+      knownPocketIds = new Set(S.pockets.map(p => p.id));
+      knownReportIds = new Set(S.reports.map(r => r.id));
+      syncOk = true;
+      lastSyncedAt = Date.now();
+      setSync("Synced just now");
+    } catch (error) {
+      syncOk = false;
+      setSync("Could not reach the server — retrying", "warn");
+    } finally {
+      loading = false;
     }
   }
 
   tick();
   setInterval(tick, 30000);
+  // A queue meant to reflect live conditions should not need a manual
+  // refresh to notice a new report or a cleared road -- this is what makes
+  // "operations console" mean something rather than "static snapshot".
+  setInterval(load, 20000);
   API.getSettings().then(function (settings) {
     el("mode").value = settings.detection_mode;
     syncFilters();

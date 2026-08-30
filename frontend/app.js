@@ -20,15 +20,23 @@
     return bestDistance < 0.004 ? best : null;
   }
 
+  // Only an OPEN case holds a road closed -- exactly app/pipeline.LIVE. A
+  // resolved case means crews cleared the road, a dismissed one means it was
+  // never blocked; neither may keep a span cut or a pocket severed. Every
+  // "is this road still blocked?" question in the frontend goes through here,
+  // so the headline figures cannot drift from the backend's severance picture.
+  const LIVE_STATUS = ["pending", "in_progress"];
+  const isLive = report => LIVE_STATUS.indexOf(report && report.status) !== -1;
+
   // Stands in for the backend recomputing road state and severance after a
   // write. Road state mirrors app/pipeline.roads(): impassable beats unknown
-  // beats passable, and rejected reports are ignored.
+  // beats passable, and closed reports are ignored.
   function recompute() {
     const mock = data();
     const rank = { impassable: 3, unknown: 2, passable: 1 };
     const reported = {};
     mock.reports.forEach(function (report) {
-      if (report.asset_type !== "road" || !report.edge_id || report.status === "rejected") return;
+      if (report.asset_type !== "road" || !report.edge_id || !isLive(report)) return;
       if ((rank[report.state] || 0) > (rank[reported[report.edge_id]] || 0)) reported[report.edge_id] = report.state;
     });
     mock.roads.forEach(road => { road.state = reported[road.edge_id] || "passable"; });
@@ -56,7 +64,7 @@
     const blocking = {};
     mock.reports.forEach(function (report) {
       if (report.asset_type !== "road" || !report.edge_id) return;
-      if (report.state !== "impassable" || report.status === "rejected") return;
+      if (report.state !== "impassable" || !isLive(report)) return;
       (blocking[report.edge_id] = blocking[report.edge_id] || []).push(report.id);
     });
     mock.pockets.forEach(pocket => pocket.severing_edges.forEach(function (edge) {
@@ -166,6 +174,26 @@
     }
   };
 
+  // Free, keyless raster tile sources, shared by both maps so they cannot
+  // silently drift to different looks. Positron is the default -- its pale
+  // ground and thin streets were built to carry data drawn on top of it,
+  // which is exactly what this app does; Esri's satellite imagery is the
+  // alternative a viewer can switch to, same as Google Maps' own toggle.
+  // Plain config here, not `L.tileLayer(...)` calls -- this file loads in a
+  // Node test sandbox with no Leaflet, so it must stay Leaflet-free.
+  const BASEMAPS = {
+    map: {
+      url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+      options: { subdomains: "abcd", maxZoom: 19 }
+    },
+    satellite: {
+      url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+      attribution: "Imagery &copy; Esri",
+      options: { maxZoom: 19 }
+    }
+  };
+
   // One source of colour for anything drawn on the map. Mirrors the semantic
   // tokens in styles.css; nothing else picks its own hex.
   const COLORS = {
@@ -187,10 +215,17 @@
   window.AppUtils = {
     LABELS: LABELS,
     COLORS: COLORS,
+    BASEMAPS: BASEMAPS,
     label: (kind, value) => (LABELS[kind] && LABELS[kind][value]) || (value == null ? "Unknown" : String(value)),
     stateLabel: state => (LABELS.state[state] || "Unknown"),
     stateClass: state => ({ passable: "good", impassable: "bad", unknown: "unknown", damaged: "bad", not_damaged: "good" }[state] || "neutral"),
     statusClass: status => ({ pending: "warn", in_progress: "ok", resolved: "neutral", rejected: "neutral" }[status] || "neutral"),
+
+    // A report is only holding a road closed while it is still open work.
+    // Mirrors app/pipeline.LIVE -- the one rule the map, the pins and the
+    // headline figures all read, so none of them can claim a road is cut
+    // after the backend has reopened it.
+    isLive: isLive,
 
     // Where a report sits in the workflow. Any status can reach any other --
     // the operator decides -- but these are the moves worth a button.
@@ -200,6 +235,21 @@
       resolved: ["in_progress", "pending"],
       rejected: ["pending", "in_progress"]
     }[status] || []),
+
+    // Button text for a workflow move. The same destination means different
+    // things from different lanes: moving a CLOSED case to in_progress is
+    // reopening a case someone already finished, not accepting a new one, and
+    // labelling it "Accept -- start work" invites an operator to reopen a
+    // cleared road by reflex. So the label is keyed by both ends of the move.
+    ACTIONS: {
+      pending: { in_progress: "Accept — start work", resolved: "Mark resolved", rejected: "Dismiss" },
+      in_progress: { resolved: "Mark resolved", pending: "Send back to pending", rejected: "Dismiss" },
+      resolved: { in_progress: "Reopen — road still blocked", pending: "Reopen as pending", rejected: "Dismiss" },
+      rejected: { pending: "Reinstate as pending", in_progress: "Reinstate — start work", resolved: "Mark resolved" }
+    },
+    actionLabel: function (from, to) {
+      return (this.ACTIONS[from] || {})[to] || "Move to " + this.label("status", to).toLowerCase();
+    },
 
     // A queue of raw scores spanning 0 to 4,000 is unreadable, and a column of
     // fifteen zeroes reads as broken rather than as "no access impact". The
@@ -241,11 +291,13 @@
         Math.round(pocket.population).toLocaleString(),
 
     // Headline system state, derived from whatever reports and pockets are
-    // loaded. Road state mirrors the backend: impassable unless rejected.
+    // loaded. Road state mirrors the backend exactly: a span counts as cut
+    // only while a LIVE report says so. Counting a resolved case here is what
+    // produced "2 roads impassable" beside a single cut-off area.
     impactSummary: function (reports, pockets) {
       const edges = new Set();
       (reports || []).forEach(function (report) {
-        if (report.asset_type !== "road" || report.state !== "impassable" || report.status === "rejected") return;
+        if (report.asset_type !== "road" || report.state !== "impassable" || !isLive(report)) return;
         edges.add(report.edge_id || "report-" + report.id);
       });
       const list = pockets || [];
