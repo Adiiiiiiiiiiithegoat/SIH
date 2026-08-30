@@ -9,12 +9,49 @@ access as a result, and hands an operator a prioritised inspection queue.
 photo" — it's ranking by consequence (how many people, how much delay) so an
 operator with ten crews and two hundred reports knows which ten to send first.
 
-Area: coastal Dakshina Kannada, Karnataka (Surathkal–Mulki). Runs fully
-offline — the road graph, population raster, settlements and OSM facility
-data are frozen under `app/data/`. A live demo can optionally call a cloud
-vision API for real photo classification; without a key it falls back to a
-deterministic offline stub, so a fresh clone and the test suite need nothing
-but Python.
+## Scope of this build
+
+This build covers one coastal taluk — Surathkal–Mulki, Dakshina Kannada,
+Karnataka — on purpose: a hackathon needs a bounding box small enough that
+every number in the demo can be hand-checked against the source data (see
+`REPORT.md`). It runs fully offline — the road graph, population raster,
+settlements and OSM facility data for that bbox are frozen under
+`app/data/`. A live demo can optionally call a cloud vision API for real
+photo classification; without a key it falls back to a deterministic
+offline stub, so a fresh clone and the test suite need nothing but Python.
+
+## Scaling to a state, or the country
+
+Nothing in the architecture is specific to this one taluk — it's the
+*data*, not the code, that's scoped small for the demo:
+
+- **The road graph, population raster, and facility list are all generated
+  by bounding box**, not hand-built. `config.REPORT_BBOX` is the only place
+  a region is named; a new district means re-running the same OSM +
+  WorldPop pipeline against a new bbox, not writing new code.
+- **OSM's road graph and WorldPop's 100 m population raster already cover
+  all of India.** What's frozen under `app/data/` is a clip of two national,
+  public datasets — not a one-off local collection that would need to be
+  redone for every new region.
+- **The priority formula, the report schema, and the detection contract are
+  all geography-independent.** `priority = belief × population^k × delay`
+  (validated against expert ordering in `REPORT.md` §5) never references
+  where the road is. Neither does `CONTRACT.md`.
+- **Detection is one stateless API call per photo.** Cost and latency scale
+  with report volume, not with how much of the country is covered.
+
+What would genuinely need engineering work to go national — flagged
+honestly, not solved here:
+- **Partition the graph.** One in-memory graph for all of India is the
+  wrong shape. Route each report to a per-state or per-district graph,
+  loaded on demand the way `network.net()` loads this one today.
+- **Swap SQLite for a real database.** `store.py` is the only file that
+  touches SQL — the seam a Postgres/multi-instance store would go through
+  without `CONTRACT.md`'s report shape changing underneath it.
+- **Automate the per-region data pipeline.** Downloading OSM, clipping
+  WorldPop, and building `reference.json` for a new bbox is currently a
+  manual run of the same scripts used for this demo; turning that into a
+  batch job is ops work, not a redesign.
 
 ## Quick start
 
