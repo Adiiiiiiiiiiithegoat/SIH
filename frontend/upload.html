@@ -32,8 +32,16 @@
         <div id="fileName" class="muted"></div>
       </div>
 
+      <div class="field geosearch" id="geosearch">
+        <label class="label" for="place">Search for a road or place</label>
+        <input id="place" type="text" autocomplete="off" role="combobox" aria-expanded="false"
+               aria-controls="placeResults" aria-autocomplete="list"
+               placeholder="e.g. Surathkal Beach Road, Mukka">
+        <div id="placeResults" class="geosearch-results" role="listbox" aria-label="Matching places"></div>
+      </div>
+
       <div id="locator" class="locator" aria-label="Report location"></div>
-      <p class="note">Drag the marker if it is not exactly where the damage is.</p>
+      <p class="note">Click the map, drag the marker, or search above — whichever gets you to the right spot fastest.</p>
 
       <div class="grid2">
         <div class="field">

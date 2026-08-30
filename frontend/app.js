@@ -334,6 +334,53 @@
       if (!values || values.length < 3) return null;
       const decimal = values[0] + values[1] / 60 + values[2] / 3600;
       return ref === "S" || ref === "W" ? -decimal : decimal;
+    },
+
+    // Nominatim (OpenStreetMap's own geocoder) is free, needs no key, and
+    // shares the OSM lineage the rest of this project is built on -- a
+    // citizen typing "Surathkal Beach Road" gets the same road the graph
+    // knows about, not a mismatched third-party address index.
+    // `bounded=1` makes the viewbox a hard filter, not a ranking hint: a
+    // result outside the coverage area would not bind to any edge anyway, so
+    // it should not show up as a plausible choice. A small pad softens the
+    // edge of the report bbox without abandoning the filter altogether.
+    geocodeUrl: function (bbox, query, limit) {
+      const pad = 0.01; // ~1 km slack in this latitude band
+      const viewbox = [bbox.west - pad, bbox.north + pad, bbox.east + pad, bbox.south - pad].join(",");
+      const params = new URLSearchParams({
+        format: "json", q: query, viewbox: viewbox, bounded: "1",
+        countrycodes: "in", limit: String(limit || 6)
+      });
+      return "https://nominatim.openstreetmap.org/search?" + params.toString();
+    },
+
+    // Nominatim's display_name is one long comma string, most-specific
+    // first ("Surathkal Beach Road, Surathkal, Mangaluru taluk, Dakshina
+    // Kannada, Karnataka, 575014, India"). The result list shows the match
+    // as a name, with a short trail of context underneath -- not the whole
+    // string, which wraps into unreadable clutter at this panel's width.
+    placeLabel: function (result) {
+      const parts = String((result && result.display_name) || "")
+        .split(",").map(s => s.trim()).filter(Boolean);
+      return {
+        name: parts[0] || "Unnamed location",
+        detail: parts.slice(1, 4).join(", ")
+      };
+    },
+
+    // Keystroke-per-request would hammer Nominatim's shared public instance
+    // (its usage policy caps light use at ~1 request/second) and race
+    // itself: a slow response to an early keystroke could land after a fast
+    // response to a later one and show stale results. Debouncing the call
+    // is necessary; cancelling the in-flight request on the next keystroke
+    // (via AbortController, at the call site) is what actually prevents the
+    // race -- this only throttles how often a call is attempted.
+    debounce: function (fn, wait) {
+      let timer = null;
+      return function (...args) {
+        clearTimeout(timer);
+        timer = setTimeout(() => fn.apply(this, args), wait);
+      };
     }
   };
 })();

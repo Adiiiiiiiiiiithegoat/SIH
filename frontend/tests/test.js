@@ -2,7 +2,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
-const context = { window: {}, console, setTimeout, clearTimeout };
+const context = { window: {}, console, setTimeout, clearTimeout, URLSearchParams };
 vm.createContext(context);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8"), context);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "mocks", "data.js"), "utf8"), context);
@@ -12,6 +12,44 @@ const { AppUtils } = context.window;
 assert.equal(context.window.UploadUtils.exifCoord("N", [13, 3, 5.4]).toFixed(6), "13.051500");
 assert.equal(context.window.UploadUtils.exifCoord("W", [74, 46, 55.56]).toFixed(6), "-74.782100");
 assert.equal(context.window.UploadUtils.exifCoord("N", null), null);
+
+/* --- geocode search (Nominatim) --- */
+const BBOX = { west: 74.78, south: 13.00, east: 74.86, north: 13.10 };
+const { geocodeUrl, placeLabel, debounce } = context.window.UploadUtils;
+
+const url = new URL(geocodeUrl(BBOX, "Surathkal Beach Road", 6));
+assert.equal(url.hostname, "nominatim.openstreetmap.org");
+assert.equal(url.searchParams.get("q"), "Surathkal Beach Road");
+assert.equal(url.searchParams.get("bounded"), "1", "outside-coverage results must be filtered, not just ranked lower");
+assert.equal(url.searchParams.get("limit"), "6");
+// viewbox is left,top,right,bottom (west,north,east,south) with a small pad.
+const vb = url.searchParams.get("viewbox").split(",").map(Number);
+assert.ok(vb[0] < BBOX.west && vb[2] > BBOX.east, "padded west/east straddle the report bbox");
+assert.ok(vb[1] > BBOX.north && vb[3] < BBOX.south, "padded north/south straddle the report bbox");
+// A default limit is used when none is given, not "limit=undefined".
+assert.equal(new URL(geocodeUrl(BBOX, "x")).searchParams.get("limit"), "6");
+// A query with spaces and symbols must survive URL encoding round-trip.
+assert.equal(new URL(geocodeUrl(BBOX, "NH 66 & Mukka")).searchParams.get("q"), "NH 66 & Mukka");
+
+const label = placeLabel({ display_name: "Surathkal Beach Road, Surathkal, Mangaluru taluk, Dakshina Kannada, Karnataka, 575014, India" });
+assert.equal(label.name, "Surathkal Beach Road");
+assert.equal(label.detail, "Surathkal, Mangaluru taluk, Dakshina Kannada");
+// Missing/empty display_name never renders as blank or "undefined".
+assert.equal(placeLabel({}).name, "Unnamed location");
+assert.equal(placeLabel({ display_name: "" }).name, "Unnamed location");
+assert.equal(placeLabel({ display_name: "Just One Thing" }).name, "Just One Thing");
+assert.equal(placeLabel({ display_name: "Just One Thing" }).detail, "");
+
+/* --- debounce: coalesces bursts into one trailing call --- */
+(function () {
+  let calls = 0;
+  const bounced = debounce(() => { calls += 1; }, 20);
+  bounced(); bounced(); bounced();
+  assert.equal(calls, 0, "must not fire before the wait elapses");
+  setTimeout(() => {
+    assert.equal(calls, 1, "three rapid calls collapse into exactly one");
+  }, 40);
+})();
 
 /* --- map colours come from the semantic token set, not per-component hexes --- */
 assert.equal(AppUtils.markerColor("impassable"), AppUtils.COLORS.bad);

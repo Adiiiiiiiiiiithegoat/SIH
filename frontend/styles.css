@@ -472,6 +472,27 @@ button.line:hover { background: var(--hover) }
 .preview { display: none; margin-top: var(--s4) }
 .preview img { max-width: 220px; border: 1px solid var(--rule) }
 .locator { height: 260px; margin-top: var(--s4); border: 1px solid var(--rule) }
+
+.geosearch { position: relative; margin-top: var(--s4) }
+.geosearch-results {
+  display: none;
+  position: absolute; left: 0; right: 0; top: 100%; z-index: 500;
+  margin-top: -1px;
+  background: var(--paper); border: 1px solid var(--rule-strong);
+  max-height: 240px; overflow-y: auto;
+}
+.geosearch-results.on { display: block }
+.geosearch-results button {
+  display: block; width: 100%; text-align: left; padding: var(--s2) var(--s3);
+  border: 0; border-top: 1px solid var(--rule); background: var(--paper);
+}
+.geosearch-results button:first-child { border-top: 0 }
+.geosearch-results button:hover, .geosearch-results button.active { background: var(--hover) }
+.geosearch-name { display: block }
+.geosearch-detail { display: block; font-size: var(--t-sm); color: var(--ink-2) }
+.geosearch-results .status {
+  padding: var(--s2) var(--s3); font-size: var(--t-sm); color: var(--ink-2);
+}
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s4); margin-top: var(--s4) }
 .msg { display: none; margin-top: var(--s4); padding: var(--s2) var(--s3); border: 1px solid }
 .msg.ok { display: block; background: var(--ok-soft); border-color: var(--ok); color: var(--ok) }
