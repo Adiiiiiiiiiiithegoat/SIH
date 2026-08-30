@@ -14,12 +14,23 @@ what it was given at full confidence.
 """
 import base64
 import hashlib
+import io
 import json
 import os
 
 import httpx
 
 from app import config
+
+try:
+    # Registers HEIF/HEIC with Pillow process-wide, so both the detector and
+    # the EXIF reader in main.py can open an iPhone photo. Done at import so it
+    # never depends on which of them happens to run first. Purely local decode
+    # -- nothing here reaches the network.
+    import pillow_heif
+    pillow_heif.register_heif_opener()
+except ImportError:      # pragma: no cover -- HEIC then degrades to "unknown"
+    pass
 
 ROAD_STATES = ("passable", "impassable", "unknown")
 BUILDING_STATES = ("damaged", "not_damaged", "unknown")
@@ -65,12 +76,56 @@ def _store_cache(digest, result):
         json.dump(result, fh)
 
 
+# What the vision endpoint will actually accept in a data: URL. Anything else
+# is a 400, so it has to be transcoded before it is sent.
+_API_FORMATS = {"jpeg", "png", "webp", "gif"}
+
+
+def api_image(raw):
+    """(bytes, format) the vision endpoint can read.
+
+    The format is sniffed from the bytes, never from the filename: phones lie
+    about extensions constantly, and a photo picked from an iPhone library can
+    arrive as .heic, as a .jpg that is really HEIC, or with no extension at
+    all. Declaring the wrong format is a 400 from the API, which used to fall
+    through to "unknown" -- a silent loss of detection on exactly the photos
+    this system exists to read.
+
+    Anything the API cannot take is transcoded to JPEG. Raw HEIC needs
+    pillow-heif (imported above); without it this raises and the caller
+    degrades to "unknown", as before.
+    """
+    fmt = _sniff(raw)
+    if fmt in _API_FORMATS:
+        return raw, fmt
+
+    from PIL import Image
+    with Image.open(io.BytesIO(raw)) as im:
+        im = im.convert("RGB")       # drops alpha and EXIF orientation quirks
+        out = io.BytesIO()
+        im.save(out, "JPEG", quality=88)
+    return out.getvalue(), "jpeg"
+
+
+def _sniff(raw):
+    """The real image format, from its magic bytes. None if unrecognised."""
+    if raw[:3] == b"\xff\xd8\xff":
+        return "jpeg"
+    if raw[:8] == b"\x89PNG\r\n\x1a\n":
+        return "png"
+    if raw[:6] in (b"GIF87a", b"GIF89a"):
+        return "gif"
+    if raw[:4] == b"RIFF" and raw[8:12] == b"WEBP":
+        return "webp"
+    if raw[4:8] == b"ftyp":
+        return "heic"        # or any other ISO-BMFF still; both need transcoding
+    return None
+
+
 def _call_deepseek(raw, ext, asset_type):
     """One DeepSeek vision call. Raises on any failure -- the caller decides
     what an unusable response means."""
     b64 = base64.b64encode(raw).decode()
-    if ext in ("jpg", ""):
-        ext = "jpeg"
     resp = httpx.post(
         config.DEEPSEEK_URL,
         headers={"Authorization": f"Bearer {config.DEEPSEEK_API_KEY}",
@@ -100,9 +155,12 @@ def _detect_api(image_path, asset_type, allowed):
         raw = fh.read()
     digest = hashlib.sha1(raw).hexdigest()
 
-    cached = _cached(digest)
-    result = cached or _call_deepseek(raw, os.path.splitext(full)[1][1:].lower(), asset_type)
-    if cached is None:
+    result = _cached(digest)
+    if result is None:
+        # Sniff and, if need be, transcode before the call -- the cache is keyed
+        # on the ORIGINAL bytes, so a re-upload of the same photo still hits.
+        payload, fmt = api_image(raw)
+        result = _call_deepseek(payload, fmt, asset_type)
         _store_cache(digest, result)
 
     state = result.get("state")
