@@ -16,7 +16,14 @@ Field values:
 - `state` (road): `passable` | `impassable` | `unknown`
 - `state` (building): `damaged` | `not_damaged` | `unknown`
 - `detection_mode`: `api` | `model` | `manual`
-- `status`: `pending` | `resolved` | `rejected`
+- `status`: `pending` | `in_progress` | `resolved` | `rejected`
+  - `pending` — awaiting an operator's assessment.
+  - `in_progress` — accepted; crews are working it. Still blocks the network.
+  - `resolved` — the work is done. Still blocks the network: resolved means the
+    report was confirmed, not that the road was cleared.
+  - `rejected` — the operator says this is not real. Does not block, is excluded
+    from severance, corroboration and every headline figure.
+  Any status may move to any other; the operator decides.
 
 ## Road record
 
@@ -116,8 +123,20 @@ POST   /api/reports
 GET    /api/reports?status=pending
 GET    /api/reports/{id}
 POST   /api/reports/{id}/status
+POST   /api/reports/{id}/state
+POST   /api/reports/{id}/edge
 GET    /api/roads
 GET    /api/pockets
+GET    /api/detours
 GET    /api/settings
 POST   /api/settings
 ```
+
+`POST /api/reports/{id}/state` takes `{"state": "<value>"}` and overrides what
+the detector decided. The value must be legal for the report's `asset_type`.
+An override is a human assertion, so the record comes back with `confidence`
+1.0 and `detection_mode` `manual`.
+
+`POST /api/reports/{id}/edge` takes `{"edge_id": "<id>"}` and overrides the
+binding, chosen from the `bind_candidates` on `GET /api/reports/{id}`. Any edge
+in the graph is accepted, not only the shortlist.

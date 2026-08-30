@@ -34,5 +34,8 @@ app/data/reports.db
 # Reports / scratch
 report*.txt
 
+# Secrets
+.env
+
 # OS
 .DS_Store

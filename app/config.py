@@ -16,6 +16,15 @@ ROOT = os.path.dirname(APP)
 DATA = os.path.join(APP, "data")
 UPLOADS = os.path.join(DATA, "uploads")
 
+# ponytail: no dotenv dependency for a 5-line KEY=VALUE reader.
+_env_path = os.path.join(ROOT, ".env")
+if os.path.exists(_env_path):
+    for _line in open(_env_path):
+        _line = _line.strip()
+        if _line and not _line.startswith("#") and "=" in _line:
+            _k, _v = _line.split("=", 1)
+            os.environ.setdefault(_k.strip(), _v.strip())
+
 GRAPHML = os.path.join(DATA, "surathkal_buffered.graphml")
 RASTER = os.path.join(DATA, "population_100m.tif")
 SETTLEMENTS = os.path.join(DATA, "settlements.csv")
@@ -93,6 +102,14 @@ ASSUMED_POCKET_POPULATION = 50.0   # stand-in when the raster has no data there
 # --- detection ------------------------------------------------------------
 DETECTION_MODE = "model"      # api | model | manual -- live-adjustable
 STUB_CONFIDENCE = 0.72        # placeholder until a real detector plugs in
+
+# mode="api" only: DeepSeek vision, key from .env (never committed). Default
+# stays "model" so tests and a fresh clone stay fully offline -- flip to "api"
+# live via POST /api/settings for a demo.
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+DEEPSEEK_MODEL = "deepseek-v4-flash-vision-exp"
+DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
+DETECT_CACHE = os.path.join(ROOT, "cache", "detect")   # keyed by image sha1
 
 # Keys a client may change through POST /api/settings.
 MUTABLE = ("DETECTION_MODE", "POPULATION_EXPONENT", "DISCONNECT_PENALTY",

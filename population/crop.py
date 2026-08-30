@@ -6,8 +6,14 @@ import rasterio
 from rasterio.windows import from_bounds
 
 BBOX = (74.78, 13.00, 74.86, 13.10)          # west, south, east, north
-BUF = 0.02                                   # ~2 km in degrees at 13 N
-BOUNDS = (BBOX[0] - BUF, BBOX[1] - BUF, BBOX[2] + BUF, BBOX[3] + BUF)
+# Must match the graph's buffer, not undercut it: the drive network is
+# downloaded with a 3 km margin, and a 2 km raster left pockets near the edge
+# with no population value at all.
+BUFFER_KM = 3.0
+_DEG_LAT = BUFFER_KM / 111.0                 # 0.027027
+_DEG_LON = BUFFER_KM / (111.0 * 0.9744)      # 0.027737  (cos 13.05 deg)
+BOUNDS = (BBOX[0] - _DEG_LON, BBOX[1] - _DEG_LAT,
+          BBOX[2] + _DEG_LON, BBOX[3] + _DEG_LAT)
 
 src_path, dst_path = sys.argv[1], sys.argv[2]
 

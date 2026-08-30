@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS reports (
     edge_id         TEXT,
     n_reports       INTEGER NOT NULL DEFAULT 1,
     status          TEXT NOT NULL DEFAULT 'pending'
-                    CHECK (status IN ('pending', 'resolved', 'rejected')),
+                    CHECK (status IN ('pending', 'in_progress', 'resolved', 'rejected')),
     detection_mode  TEXT NOT NULL CHECK (detection_mode IN ('api', 'model', 'manual')),
     priority_score  REAL,
     priority_reason TEXT,

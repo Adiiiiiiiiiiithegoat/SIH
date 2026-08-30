@@ -1,0 +1,227 @@
+
+==============================================================================
+DEMO ITEM 1 -- rank #1 severance
+==============================================================================
+
+SEVERING EDGE
+  edge_id      : 5269747322-9647824661
+  node IDs     : 5269747322 -> 9647824661
+  endpoint A   : 13.016616, 74.794199
+  endpoint B   : 13.017250, 74.795746
+  name         : <unnamed>
+  length       : 182.0 m
+  highway      : residential
+  bridge tag   : NONE (not a bridge)
+  endpoint degrees: 3 / 3
+  directed segments: 2
+  GEOMETRY FOR DRAWING (lat, lon):
+    13.016616, 74.794199
+    13.016806, 74.794573
+    13.016869, 74.794742
+    13.017089, 74.795342
+    13.017102, 74.795375
+    13.017250, 74.795746
+
+SEVERED POCKET  (24 nodes)
+  node IDs: [7119852166, 7119852182, 7119852184, 7119872490, 7119872495, 9647824629, 9647824630, 9647824637, 9647824638, 9647824639, 9647824646, 9647824647, 9647824651, 9647824656, 9647824657, 9647824660, 9647824661, 9647824670, 10053189711, 10053189713, 11121247949, 11121247954, 11121247956, 11121247976]
+  centroid: 13.017537, 74.798508
+  hull area: 0.2783 km2
+  HULL POLYGON (lat, lon):
+    13.013784, 74.801089
+    13.017740, 74.794809
+    13.018645, 74.795117
+    13.019133, 74.795852
+    13.019527, 74.796459
+    13.019830, 74.797137
+    13.020408, 74.799315
+    13.018408, 74.800855
+    13.013784, 74.801089
+
+POPULATION
+  value    : 681.6 people
+  source   : raster
+  method   : cells   coverage: full
+  WorldPop 2020 constrained 100 m gridded estimate, summed over the
+  hull polygon. A MODELLED ESTIMATE, not an enumerated census count,
+  and not tied to any administrative boundary. Label it as an estimate.
+
+FACILITY LOST
+  name        : Health Subcenter
+  coordinates : 13.009436, 74.796131
+  type        : clinic
+  graph node  : 3655381507
+  prior access: 1.58 km by road
+  after the cut: NO ROUTE to any of the 15 facilities
+
+  ROUTE BEFORE THE CUT  (node 9647824661 -> Health Subcenter, 1.58 km, 16 nodes)
+    crosses the severing edge: YES
+    path (lat, lon):
+        9647824661  13.017250, 74.795746
+        5269747322  13.016616, 74.794199
+        9647824686  13.016571, 74.794023
+        7119872502  13.016268, 74.792295
+        5477340177  13.012491, 74.792951
+       10100399764  13.012493, 74.793041
+        1866312211  13.012481, 74.794175
+       13052481723  13.012462, 74.795528
+       13052481722  13.012449, 74.796148
+        1866312199  13.012439, 74.796622
+       13052481731  13.011615, 74.796626
+        1866312224  13.011041, 74.796644
+       13052481727  13.010699, 74.796627
+       11974971272  13.010550, 74.796620
+        6347827991  13.009471, 74.796642
+        3655381507  13.009481, 74.796338
+
+NEAREST NAMED SETTLEMENTS -- LABELS ONLY
+  none of these was used to detect the severance, and none need lie
+  inside the pocket.
+    Mukka (village)   1.07 km   @ 13.022444, 74.789998
+    Chelairu (village)   1.21 km   @ 13.027252, 74.803441
+    Pavanje (village)   2.01 km   @ 13.035025, 74.794077
+
+PRIORITY SCORE  (factor by factor)
+  belief            = 0.8000
+    state=impassable, confidence=1.0, n_reports=1, status=pending
+    = 1.0 * (0.6 + 0.4 * (1 - 0.5^1)) = 0.8000
+  population        = 681.6
+  population^0.4     = 13.5960
+  delay_minutes     = 300.0   (DISCONNECT_PENALTY, severed)
+  priority          = 0.8000 * 13.5960 * 300.0 = 3263.0
+  engine score()    = 3263.0
+  with UNKNOWN_BELIEF=0.5 instead (unverified report): 1631.5
+
+DEMO PHOTO COORDINATE  (for EXIF GPS)
+  latitude  : 13.017102
+  longitude : 74.795375
+  a vertex of the span's real OSM geometry, 0.4 m from the
+  straight endpoint chord that binding.candidates measures against
+  suggested EXIF GPSHorizontalPositioningError: 8 m (a good phone fix)
+  binds to  : 5269747322-9647824661   -> CORRECT
+    candidate 5269747322-9647824661         0.40 m  score 0.9597   <- chosen
+
+==============================================================================
+DEMO ITEM 2 -- Madhya Padavu bridge, rank #19
+==============================================================================
+
+SEVERING EDGE
+  edge_id      : 9620418684-9620418686
+  node IDs     : 9620418684 -> 9620418686
+  endpoint A   : 13.010870, 74.811831
+  endpoint B   : 13.012287, 74.807465
+  name         : <unnamed>
+  length       : 506.9 m
+  highway      : unclassified
+  bridge tag   : yes
+  endpoint degrees: 3 / 3
+  directed segments: 2
+  GEOMETRY FOR DRAWING (lat, lon):
+    13.012287, 74.807465
+    13.012256, 74.807494
+    13.012236, 74.807536
+    13.012206, 74.807704
+    13.012193, 74.808023
+    13.012167, 74.808279
+    13.012117, 74.808712
+    13.012064, 74.808987
+    13.012016, 74.809304
+    13.011925, 74.809627
+    13.011824, 74.809936
+    13.011632, 74.810463
+    13.011539, 74.810713
+    13.011357, 74.811042
+    13.011135, 74.811412
+    13.010935, 74.811737
+    13.010870, 74.811831
+
+SEVERED POCKET  (5 nodes)
+  node IDs: [9620418686, 9620418702, 9620418703, 9620418712, 12500511916]
+  centroid: 13.013189, 74.806888
+  hull area: 0.0344 km2
+  HULL POLYGON (lat, lon):
+    13.011746, 74.806037
+    13.015066, 74.806786
+    13.013701, 74.807610
+    13.012287, 74.807465
+    13.011746, 74.806037
+
+POPULATION
+  value    : 26.7 people
+  source   : raster
+  method   : cells   coverage: full
+  WorldPop 2020 constrained 100 m gridded estimate, summed over the
+  hull polygon. A MODELLED ESTIMATE, not an enumerated census count,
+  and not tied to any administrative boundary. Label it as an estimate.
+
+FACILITY LOST
+  name        : Padmavathi Hospital, Dakshina Kannada
+  coordinates : 12.991671, 74.800406
+  type        : hospital
+  graph node  : 9620804996
+  prior access: 4.65 km by road
+  after the cut: NO ROUTE to any of the 15 facilities
+
+  ROUTE BEFORE THE CUT  (node 9620418686 -> Padmavathi Hospital, Dakshina Kannada, 4.65 km, 30 nodes)
+    crosses the severing edge: YES
+    path (lat, lon):
+        9620418686  13.012287, 74.807465
+        9620418684  13.010870, 74.811831
+        9620306805  13.009938, 74.812007
+        9689501024  13.008519, 74.809684
+        2284171672  13.008368, 74.807893
+        2284171282  13.008237, 74.806053
+       12886379940  13.007897, 74.804434
+        9620473412  13.008111, 74.803294
+        9620473391  13.008276, 74.802611
+        9620473388  13.008297, 74.802424
+        9620473671  13.008704, 74.800567
+       11224152305  13.009002, 74.799522
+        1866349029  13.009014, 74.798901
+        9620473428  13.007699, 74.798587
+        2284171559  13.006470, 74.798153
+        2284171780  13.005279, 74.797874
+       10100399743  13.004431, 74.794434
+       10100399744  13.003819, 74.794732
+       10100399745  13.002515, 74.795367
+       10100399746  13.001838, 74.795671
+       10100399747  13.000886, 74.796107
+       10100399748  13.000578, 74.796276
+       10110463099  13.000240, 74.796595
+       10100399749  13.000073, 74.796809
+       11337921856  12.996361, 74.798735
+       10100399750  12.996104, 74.798793
+       11729544708  12.995659, 74.798892
+        9620804988  12.993222, 74.799437
+        9620804993  12.991562, 74.799822
+        9620804996  12.991768, 74.800605
+
+NEAREST NAMED SETTLEMENTS -- LABELS ONLY
+  none of these was used to detect the severance, and none need lie
+  inside the pocket.
+    Madhya Padavu (village)   1.03 km   @ 13.011018, 74.816101
+    Chelairu (village)   1.61 km   @ 13.027252, 74.803441
+    Krishnapura (suburb)   2.08 km   @ 13.000141, 74.820671
+
+PRIORITY SCORE  (factor by factor)
+  belief            = 0.8000
+    state=impassable, confidence=1.0, n_reports=1, status=pending
+    = 1.0 * (0.6 + 0.4 * (1 - 0.5^1)) = 0.8000
+  population        = 26.7
+  population^0.4     = 3.7205
+  delay_minutes     = 300.0   (DISCONNECT_PENALTY, severed)
+  priority          = 0.8000 * 3.7205 * 300.0 = 892.9
+  engine score()    = 892.9
+  with UNKNOWN_BELIEF=0.5 instead (unverified report): 446.5
+
+DEMO PHOTO COORDINATE  (for EXIF GPS)
+  latitude  : 13.012206
+  longitude : 74.807704
+  a vertex of the span's real OSM geometry, 0.3 m from the
+  straight endpoint chord that binding.candidates measures against
+  suggested EXIF GPSHorizontalPositioningError: 8 m (a good phone fix)
+  binds to  : 9620418684-9620418686   -> CORRECT
+    candidate 9620418684-9620418686         0.32 m  score 0.9675   <- chosen
+
+==============================================================================
+DONE
+==============================================================================

@@ -39,7 +39,10 @@ def belief(state, confidence, n_reports=1, status="pending"):
 
     n = 1 if n_reports is None else max(0, int(n_reports))
     base *= 0.6 + config.CORROBORATION_WEIGHT * (1 - 0.5 ** n)
-    if status == "resolved":
+    # An operator who has accepted the report -- whether crews are on it
+    # (in_progress) or the work is done (resolved) -- has verified it, and that
+    # is worth more than any number of citizen reports.
+    if status in ("in_progress", "resolved"):
         base *= config.CONFIRMATION_BOOST
     return min(1.0, base)
 
@@ -93,7 +96,7 @@ def _people(pop, source):
 
 
 def _corroboration(n_reports, status):
-    if status == "resolved":
+    if status in ("in_progress", "resolved"):
         return "confirmed on the ground"
     if n_reports and n_reports > 1:
         return f"{n_reports} corroborating reports"

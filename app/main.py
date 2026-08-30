@@ -175,13 +175,36 @@ def get_report(report_id: int, request: Request):
 async def set_status(report_id: int, request: Request):
     body = await request.json()
     status = body.get("status")
-    if status not in ("pending", "resolved", "rejected"):
-        raise HTTPException(422, "status must be pending, resolved or rejected")
+    if status not in ("pending", "in_progress", "resolved", "rejected"):
+        raise HTTPException(422, "status must be pending, in_progress, resolved or rejected")
     if store.get(report_id) is None:
         raise HTTPException(404, "no such report")
     store.update(report_id, status=status)
     pipeline.recompute()
     return _public(store.get(report_id), request)
+
+
+@app.post("/api/reports/{report_id}/state")
+async def override_state(report_id: int, request: Request):
+    """Operator override of the detected state.
+
+    The detector returns `unknown` whenever it cannot classify, and an operator
+    looking at the photo usually can. Overriding is an assertion, so confidence
+    goes to 1.0 and detection_mode becomes `manual` -- the record must not keep
+    claiming a model produced a state a human chose.
+    """
+    report = store.get(report_id, full=True)
+    if report is None:
+        raise HTTPException(404, "no such report")
+    body = await request.json()
+    state = body.get("state")
+    allowed = (("passable", "impassable", "unknown") if report["asset_type"] == "road"
+               else ("damaged", "not_damaged", "unknown"))
+    if state not in allowed:
+        raise HTTPException(422, f"state for a {report['asset_type']} must be one of {allowed}")
+    store.update(report_id, state=state, confidence=1.0, detection_mode="manual")
+    pipeline.recompute()
+    return _public(store.get(report_id, full=True), request)
 
 
 @app.post("/api/reports/{report_id}/edge")

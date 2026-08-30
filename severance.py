@@ -650,3 +650,212 @@ for label, a, b in KNOWN:
                   f"(was {info['pre'][1]/1000:.2f} km)")
 
 hr("DONE")
+
+# --- 4. unified priority scoring ------------------------------------------
+import config
+from app import priority as app_priority
+
+# Belief comes from the BACKEND's own function, not a bare constant, so a sweep
+# score is reproducible by the engine instead of sitting between two of its
+# values. n_reports=0 is the honest input here and is not the same as 1:
+#
+#   sweep     -- a HYPOTHETICAL failure nobody has reported. n_reports=0 gives
+#                the corroboration term 0.6 + 0.4*(1-0.5**0) = 0.6, so belief
+#                is 0.5 * 0.6 = 0.3.
+#   dashboard -- an ACTUAL report with its real corroboration count, so belief
+#                is 0.4 at one report, 0.45 at two, and higher still once an
+#                operator confirms it.
+#
+# The two therefore produce different ABSOLUTE numbers by design. Ranks are
+# unaffected within either set: belief is a constant multiplier across every
+# row of a sweep, so it cannot reorder them. Do not "reconcile" the absolute
+# values -- they answer different questions.
+SWEEP_BELIEF = app_priority.belief("unknown", None, n_reports=0, status="pending")
+
+hr("4. UNIFIED PRIORITY SCORE  (no category gate)")
+print("priority = belief * (population ** POPULATION_EXPONENT) * delay_minutes")
+print(f"  belief              = {SWEEP_BELIEF:.4f}  via priority.belief('unknown',")
+print(f"                        n_reports=0): a hypothetical failure nobody has")
+print(f"                        reported. UNKNOWN_BELIEF {config.UNKNOWN_BELIEF} damped by the")
+print(f"                        corroboration term 0.6 at zero reports. Uniform")
+print(f"                        across every row, so it cannot affect ordering.")
+print(f"                        The dashboard scores REAL reports and so reads")
+print(f"                        higher for the same edge -- different question.")
+print(f"  POPULATION_EXPONENT = {config.POPULATION_EXPONENT}")
+print(f"  DISCONNECT_PENALTY  = {config.DISCONNECT_PENALTY} min   (severance delay)")
+print(f"  ASSUMED_SPEED_KMH   = {config.ASSUMED_SPEED_KMH}       (detour delay = added_km/speed*60)")
+print("severances and detours share one formula. no tiers, no category bonus.\n")
+
+
+def centroid_in_box(poly):
+    c = poly.centroid
+    return in_report_bbox(c.y, c.x)
+
+
+scored, unscorable = [], []
+for a in survivors:
+    if not centroid_in_box(a["poly"]):
+        continue
+    m = span_meta(a["pair"])
+    if a["pop"] is None:
+        unscorable.append(("SEVERANCE", m, a["n"]))
+        continue
+    delay = float(config.DISCONNECT_PENALTY)
+    scored.append({
+        "score": SWEEP_BELIEF * (a["pop"] ** config.POPULATION_EXPONENT) * delay,
+        "kind": "SEVERANCE", "pop": a["pop"], "delay": delay, "n": a["n"],
+        "meta": m, "pair": a["pair"], "added": None})
+
+for r in det_rows:
+    _, poly, _ = hull_of(r["nodes"])
+    if not centroid_in_box(poly):
+        continue
+    if r["pop"] is None:
+        unscorable.append(("DETOUR", r["meta"], len(r["nodes"])))
+        continue
+    added_km = r["worst"] / 1000.0
+    delay = (added_km / config.ASSUMED_SPEED_KMH) * 60.0
+    scored.append({
+        "score": SWEEP_BELIEF * (r["pop"] ** config.POPULATION_EXPONENT) * delay,
+        "kind": "DETOUR", "pop": r["pop"], "delay": delay, "n": len(r["nodes"]),
+        "meta": r["meta"], "pair": r["pair"], "added": added_km})
+
+scored.sort(key=lambda d: -d["score"])
+print(f"in-bbox scored results: {len(scored)}   "
+      f"(unscorable because population is None: {len(unscorable)})\n")
+print(f"{'#':>3} {'score':>9} {'kind':<10} {'pop':>10} {'delay_min':>9} {'nodes':>6} "
+      f"{'len_m':>7} {'brdg':>4}  {'highway':<12} edge")
+print("-" * 112)
+for i, d in enumerate(scored[:20], 1):
+    print(f"{i:>3} {d['score']:>9.1f} {d['kind']:<10} {d['pop']:>10,.1f} {d['delay']:>9.1f} "
+          f"{d['n']:>6} {d['meta']['length']:>7.0f} "
+          f"{'YES' if d['meta']['bridge'] else 'no':>4}  "
+          f"{str(d['meta']['highway'])[:12]:<12} {d['meta']['name'][:26]}")
+
+TARGETS = {
+    "NH66 bridge": ((13.09610, 74.78753), (13.10042, 74.78831)),
+    "Madhya Padavu severance": ((13.01087, 74.81183), (13.01229, 74.80747)),
+}
+print("\nwhere the two demo candidates landed:")
+for label, (pa, pb) in TARGETS.items():
+    tp = tuple(sorted((nearest_node(pa[1], pa[0]), nearest_node(pb[1], pb[0]))))
+    hits = [(i, d) for i, d in enumerate(scored, 1) if d["pair"] == tp]
+    if hits:
+        i, d = hits[0]
+        print(f"  {label:<26} rank #{i} of {len(scored)}   score {d['score']:.1f}   "
+              f"{d['kind']}  pop {d['pop']:,.1f}  delay {d['delay']:.1f} min")
+    else:
+        print(f"  {label:<26} NOT present in the in-bbox scored list")
+
+# --- 5. demo-script detail ------------------------------------------------
+hr("5. DEMO SCRIPT DETAIL")
+
+
+def edge_geometry(pair):
+    out = []
+    for u, v, k, d in spans[pair]:
+        g = d.get("geometry")
+        if g is not None and hasattr(g, "coords"):
+            out.append((u, v, k, [(y, x) for x, y in g.coords]))
+        else:
+            out.append((u, v, k, [(G.nodes[u]["y"], G.nodes[u]["x"]),
+                                  (G.nodes[v]["y"], G.nodes[v]["x"])]))
+    return out
+
+
+def facility_for(node, dmaps):
+    best = None
+    for fn, dm in dmaps.items():
+        d = dm.get(node)
+        if d is not None and (best is None or d < best[1]):
+            best = (fac_name_of[fn], d)
+    return best
+
+
+def demo_block(label, pair, kind):
+    m = span_meta(pair)
+    u, v = pair
+    na, nb = G.nodes[u], G.nodes[v]
+    print(f"\n{'=' * 74}\n{label}   [{kind}]\n{'=' * 74}")
+    print("EDGE")
+    print(f"  node IDs    : {u} -> {v}")
+    print(f"  endpoint A  : {na['y']:.6f}, {na['x']:.6f}")
+    print(f"  endpoint B  : {nb['y']:.6f}, {nb['x']:.6f}")
+    print(f"  name        : {m['name']}")
+    print(f"  length      : {m['length']:.1f} m")
+    print(f"  highway     : {m['highway']}")
+    print(f"  bridge tag  : {m['bridge_tag'] if m['bridge'] else 'NONE (not a bridge)'}")
+    print(f"  endpoint degrees: {Gs.degree(u)} / {Gs.degree(v)}")
+    print(f"  directed segments: {m['n_seg']}")
+    print("  GEOMETRY FOR DRAWING (lat, lon per directed segment):")
+    for su, sv, sk, coords in edge_geometry(pair):
+        print(f"    segment {su} -> {sv}  key {sk}  ({len(coords)} points)")
+        for la, lo in coords:
+            print(f"      {la:.6f}, {lo:.6f}")
+
+    dm_after = care_map_without(pair)
+    if kind == "SEVERANCE":
+        pocket = next((set(a["nodes"]) for a in survivors if a["pair"] == pair), None)
+        affected = sorted(pocket) if pocket else sorted(
+            n for n in base_map if n not in dm_after)
+    else:
+        affected = sorted(n for n, b in base_map.items()
+                          if n in dm_after and dm_after[n] - b > DETOUR_THRESHOLD_M)
+    hull, poly, widened = hull_of(set(affected))
+    x0, y0, x1, y1 = poly.bounds
+    d = pop_detail(poly)
+    print(f"\nAFFECTED AREA  ({len(affected)} nodes)")
+    print(f"  node IDs: {', '.join(str(n) for n in affected[:60])}"
+          + (f"  ... (+{len(affected) - 60} more)" if len(affected) > 60 else ""))
+    print(f"  bounding box: lat {y0:.6f}..{y1:.6f}   lon {x0:.6f}..{x1:.6f}")
+    print(f"  hull area   : {hull_area_km2(hull):.4f} km2"
+          + ("   (degenerate hull; buffered for population)" if widened else ""))
+    print(f"  centroid    : {poly.centroid.y:.6f}, {poly.centroid.x:.6f}")
+    print("POPULATION")
+    print(f"  value : " + ("None" if d["value"] is None else f"{d['value']:,.1f} people"))
+    print(f"  source: WorldPop 2020 constrained 100 m gridded estimate, summed over the")
+    print(f"          affected-area polygon. A modelled estimate, NOT a census count.")
+    print(f"  method: {d['method']}, {d['cells']} raster cell(s), coverage={d['coverage']}")
+
+    if kind == "SEVERANCE":
+        rep = min(affected, key=lambda n: base_map.get(n, float("inf")))
+    else:
+        rep = max(affected, key=lambda n: dm_after[n] - base_map[n])
+    before = facility_for(rep, per_fac)
+    es = spans[pair]
+    rev = [(vv, uu, kk, dd) for uu, vv, kk, dd in es]
+    R.remove_edges_from([(a2, b2, k2) for a2, b2, k2, _ in rev])
+    per_fac_after = {fn: nx.single_source_dijkstra_path_length(R, fn, weight="length")
+                     for fn in per_fac}
+    R.add_edges_from(rev)
+    after = facility_for(rep, per_fac_after)
+    print(f"ROUTING TO CARE   worst-affected node {rep} "
+          f"({G.nodes[rep]['y']:.6f}, {G.nodes[rep]['x']:.6f})")
+    print(f"  BEFORE: {before[0] if before else 'nothing reachable'}"
+          + (f"   {before[1] / 1000:.2f} km" if before else ""))
+    if after:
+        print(f"  AFTER : {after[0]}   {after[1] / 1000:.2f} km")
+        print(f"  change: +{(after[1] - before[1]) / 1000:.2f} km"
+              + ("   (re-routes to a DIFFERENT facility)"
+                 if before and after[0] != before[0]
+                 else "   (same facility, longer route)"))
+    else:
+        print(f"  AFTER : NO ROUTE to any of the {len(facilities)} facilities")
+        print(f"  change: cut off entirely")
+    cy, cx = poly.centroid.y, poly.centroid.x
+    near = sorted(named_places, key=lambda p: metres(cy, cx, p["lat"], p["lon"]))[:3]
+    print("NEAREST NAMED PLACES -- LABELS ONLY. none was used to detect this impact,")
+    print("                        and none need lie inside the affected area.")
+    for p in near:
+        print(f"  {p['name']} ({p['type']})   {metres(cy, cx, p['lat'], p['lon']) / 1000:.2f} km")
+
+
+for label, (pa, pb) in TARGETS.items():
+    tp = tuple(sorted((nearest_node(pa[1], pa[0]), nearest_node(pb[1], pb[0]))))
+    if tp not in spans:
+        print(f"\n{label}: no such span in the graph")
+        continue
+    kind = "SEVERANCE" if any(a["pair"] == tp for a in survivors) else "DETOUR"
+    demo_block(label, tp, kind)
+
+hr("DONE")

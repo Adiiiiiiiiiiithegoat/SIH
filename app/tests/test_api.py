@@ -355,3 +355,73 @@ def test_pocket_record_matches_the_field_list_in_contract_md(client):
     assert set(pocket) == listed[0], "pocket fields differ from CONTRACT.md"
     assert set(pocket["severing_edges"][0]) == listed[1], \
         "severing_edges fields differ from CONTRACT.md"
+
+
+# --- workflow and overrides ----------------------------------------------
+def test_a_report_moves_through_the_whole_workflow(client):
+    """pending -> in_progress -> resolved, and back again. The operator decides;
+    no transition is one-way."""
+    report = create(client, *SEVERING_POINT, state="impassable")
+    for status in ("in_progress", "resolved", "in_progress", "pending"):
+        r = client.post(f"/api/reports/{report['id']}/status", json={"status": status})
+        assert r.status_code == 200, r.text
+        assert r.json()["status"] == status
+        assert client.get(f"/api/reports/{report['id']}").json()["status"] == status
+
+
+def test_in_progress_still_blocks_the_network(client):
+    """Accepting a report does not clear the road. Only rejecting it does."""
+    report = create(client, *SEVERING_POINT, state="impassable")
+    client.post(f"/api/reports/{report['id']}/status", json={"status": "in_progress"})
+    roads = {r["edge_id"]: r for r in client.get("/api/roads").json()}
+    assert roads[report["edge_id"]]["state"] == "impassable"
+    assert len(client.get("/api/pockets").json()) == 1
+
+    client.post(f"/api/reports/{report['id']}/status", json={"status": "rejected"})
+    roads = {r["edge_id"]: r for r in client.get("/api/roads").json()}
+    assert roads[report["edge_id"]]["state"] == "passable"
+    assert client.get("/api/pockets").json() == []
+
+
+def test_accepting_a_report_raises_its_priority(client):
+    """An operator accepting it is worth more than a citizen reporting it."""
+    report = create(client, *SEVERING_POINT, state="impassable")
+    before = client.get(f"/api/reports/{report['id']}").json()["priority_score"]
+    client.post(f"/api/reports/{report['id']}/status", json={"status": "in_progress"})
+    after = client.get(f"/api/reports/{report['id']}").json()["priority_score"]
+    assert after > before
+
+
+def test_an_operator_can_override_an_unknown_state(client):
+    """The detector says unknown; the operator looking at the photo can say."""
+    report = create(client, *SEVERING_POINT, state="unknown")
+    assert report["priority_score"] is not None
+
+    r = client.post(f"/api/reports/{report['id']}/state", json={"state": "impassable"})
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert out["state"] == "impassable"
+    # A human assertion, not a model guess -- the record must say so.
+    assert out["confidence"] == 1.0
+    assert out["detection_mode"] == "manual"
+
+    roads = {x["edge_id"]: x for x in client.get("/api/roads").json()}
+    assert roads[report["edge_id"]]["state"] == "impassable"
+    assert len(client.get("/api/pockets").json()) == 1
+
+
+def test_state_override_is_checked_against_the_asset_type(client):
+    road = create(client, *QUIET_POINT, state="unknown")
+    assert client.post(f"/api/reports/{road['id']}/state",
+                       json={"state": "damaged"}).status_code == 422
+    building = create(client, 13.0224, 74.7900, asset_type="building", state="unknown")
+    assert client.post(f"/api/reports/{building['id']}/state",
+                       json={"state": "impassable"}).status_code == 422
+    assert client.post("/api/reports/9999/state",
+                       json={"state": "passable"}).status_code == 404
+
+
+def test_bad_status_is_still_rejected(client):
+    report = create(client, *QUIET_POINT)
+    assert client.post(f"/api/reports/{report['id']}/status",
+                       json={"status": "in progress"}).status_code == 422

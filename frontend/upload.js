@@ -1,75 +1,109 @@
 (function () {
+  const U = window.AppUtils;
   const bbox = window.MOCK_DATA.bbox;
-  const map = L.map("mapSmall", { zoomControl: false }).setView([(bbox.south + bbox.north) / 2, (bbox.west + bbox.east) / 2], 12);
-  L.control.zoom({ position: "bottomright" }).addTo(map);
-  let marker = L.marker(map.getCenter(), { draggable: true }).addTo(map);
-  let selectedFile = null;
-  let exifLocation = null;
-  const input = document.getElementById("mediaInput");
-  const preview = document.getElementById("preview");
-  const previewImage = document.getElementById("previewImage");
-  const notice = document.getElementById("notice");
-  const queue = document.getElementById("queue");
-  const accuracy = document.getElementById("accuracy");
+  const home = [(bbox.south + bbox.north) / 2, (bbox.west + bbox.east) / 2];
+  const el = id => document.getElementById(id);
 
-  function setNotice(message, type) { notice.textContent = message; notice.className = "notice " + type; }
-  function setLocation(lat, lon) { marker.setLatLng([lat, lon]); map.setView([lat, lon], 14); }
-  const exifCoord = window.UploadUtils.exifCoord;
-  function readExif(file) {
-    return new Promise(resolve => {
-      if (!window.EXIF || !file || !file.type.startsWith("image/")) return resolve(null);
-      EXIF.getData(file, function () {
-        const lat = exifCoord(EXIF.getTag(this, "GPSLatitudeRef"), EXIF.getTag(this, "GPSLatitude"));
-        const lon = exifCoord(EXIF.getTag(this, "GPSLongitudeRef"), EXIF.getTag(this, "GPSLongitude"));
+  const map = L.map("locator", { zoomControl: false, attributionControl: false }).setView(home, 12);
+  L.control.zoom({ position: "topright" }).addTo(map);
+
+  // Our own marker, so nothing loads Leaflet's default PNGs.
+  const icon = L.divIcon({
+    className: "",
+    html: '<div class="pin road" style="background:' + U.COLORS.unknown + ';color:' + U.COLORS.unknown + '"></div>',
+    iconSize: [11, 11], iconAnchor: [6, 6]
+  });
+  const marker = L.marker(home, { draggable: true, icon: icon }).addTo(map);
+
+  // The road network is the only geography here; without it this is a blank box.
+  const netR = L.canvas({ padding: 0.3 }).addTo(map);
+  API.getRoads().then(roads => roads.forEach(road => L.polyline(road.coordinates, {
+    renderer: netR, interactive: false,
+    color: U.COLORS.neutral, weight: U.roadWeight(road), opacity: 0.85
+  }).addTo(map))).catch(() => { /* the locator still works without it */ });
+
+  let file = null;
+
+  function say(text, kind) { el("msg").textContent = text; el("msg").className = "msg " + kind; }
+  function place(lat, lon) { marker.setLatLng([lat, lon]); map.setView([lat, lon], 15); }
+
+  function reset() {
+    file = null;
+    el("file").value = "";
+    el("preview").style.display = "none";
+    el("previewImg").removeAttribute("src");
+    el("fileName").textContent = "";
+    el("accuracy").value = "";
+    marker.setLatLng(home);
+    map.setView(home, 12);
+  }
+
+  function readExif(f) {
+    return new Promise(function (resolve) {
+      if (!window.EXIF || !f || !f.type.startsWith("image/")) return resolve(null);
+      EXIF.getData(f, function () {
+        const la = window.UploadUtils.exifCoord(EXIF.getTag(this, "GPSLatitudeRef"), EXIF.getTag(this, "GPSLatitude"));
+        const lo = window.UploadUtils.exifCoord(EXIF.getTag(this, "GPSLongitudeRef"), EXIF.getTag(this, "GPSLongitude"));
         const acc = EXIF.getTag(this, "GPSDOP") || EXIF.getTag(this, "GPSHPositioningError");
-        resolve(lat != null && lon != null ? { lat, lon, accuracy: acc ? Number(acc) : null } : null);
+        resolve(la != null && lo != null ? { lat: la, lon: lo, accuracy: acc ? Number(acc) : null } : null);
       });
     });
   }
+
   async function locate() {
-    exifLocation = await readExif(selectedFile);
-    if (exifLocation) {
-      setLocation(exifLocation.lat, exifLocation.lon);
-      if (exifLocation.accuracy) accuracy.value = exifLocation.accuracy;
-      setNotice("Location read from photo metadata. Drag the pin if needed.", "success");
-      return;
+    const found = await readExif(file);
+    if (found) {
+      place(found.lat, found.lon);
+      if (found.accuracy) el("accuracy").value = found.accuracy;
+      return say("Location read from the photo. Drag the marker if it is not quite right.", "ok");
     }
+    const noGps = () => say("No location in this file. Drag the marker to where the damage is.", "warn");
     if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(pos => setLocation(pos.coords.latitude, pos.coords.longitude), () => setNotice("No GPS in this file. Drag the pin to the report location.", "success"), { timeout: 5000 });
-    } else setNotice("No GPS in this file. Drag the pin to the report location.", "success");
+      navigator.geolocation.getCurrentPosition(
+        p => { place(p.coords.latitude, p.coords.longitude); say("Using this device's location. Drag the marker if needed.", "warn"); },
+        noGps, { timeout: 5000 });
+    } else noGps();
   }
-  input.addEventListener("change", async event => {
-    selectedFile = event.target.files[0];
-    if (!selectedFile) return;
-    document.getElementById("fileName").textContent = selectedFile.name;
-    preview.style.display = "block";
-    if (selectedFile.type.startsWith("image/")) previewImage.src = URL.createObjectURL(selectedFile);
-    else previewImage.src = "mocks/images/report-3.svg";
+
+  el("file").addEventListener("change", async function (e) {
+    file = e.target.files[0];
+    if (!file) return;
+    el("fileName").textContent = file.name;
+    el("preview").style.display = "block";
+    el("previewImg").src = file.type.startsWith("image/")
+      ? URL.createObjectURL(file) : "mocks/images/report-3.svg";
     await locate();
   });
-  document.getElementById("dropzone").addEventListener("dragover", event => { event.preventDefault(); event.currentTarget.classList.add("drag"); });
-  document.getElementById("dropzone").addEventListener("dragleave", event => event.currentTarget.classList.remove("drag"));
-  document.getElementById("dropzone").addEventListener("drop", event => { event.preventDefault(); event.currentTarget.classList.remove("drag"); input.files = event.dataTransfer.files; input.dispatchEvent(new Event("change")); });
-  async function submit() {
-    if (!selectedFile) return setNotice("Choose a photo or video before submitting.", "error");
+
+  const drop = el("drop");
+  drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("over"); });
+  drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+  drop.addEventListener("drop", function (e) {
+    e.preventDefault();
+    drop.classList.remove("over");
+    el("file").files = e.dataTransfer.files;
+    el("file").dispatchEvent(new Event("change"));
+  });
+
+  async function send() {
+    if (!file) return say("Choose a photo or video first.", "err");
     const point = marker.getLatLng();
-    const data = new FormData();
-    data.append("image", selectedFile);
-    data.append("lat", point.lat);
-    data.append("lon", point.lng);
-    data.append("gps_accuracy_m", accuracy.value || "");
-    data.append("asset_type", document.getElementById("assetType").value);
+    const form = new FormData();
+    form.append("image", file);
+    form.append("lat", point.lat);
+    form.append("lon", point.lng);
+    form.append("gps_accuracy_m", el("accuracy").value || "");
+    form.append("asset_type", el("asset").value);
     try {
-      const report = await API.createReport(data);
-      queue.classList.remove("show");
-      setNotice("Report received. Reference #" + report.id + " has been queued for review.", "success");
-      selectedFile = null; input.value = "";
+      const report = await API.createReport(form);
+      reset();
+      say("Report received. Reference #" + report.id + " is queued for review.", "ok");
     } catch (error) {
-      queue.classList.add("show");
-      setNotice("Could not send the report yet. Keep this page open and we’ll retry automatically.", "error");
-      setTimeout(submit, 4000);
+      say("Could not send yet. Keep this page open — it will retry when the connection returns.", "err");
+      setTimeout(send, 4000);
     }
   }
-  document.getElementById("submitReport").addEventListener("click", submit);
-  window.addEventListener("online", () => { if (selectedFile) submit(); });
+
+  el("send").addEventListener("click", send);
+  window.addEventListener("online", () => { if (file) send(); });
 })();

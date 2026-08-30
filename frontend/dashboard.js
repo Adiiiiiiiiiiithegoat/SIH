@@ -1,43 +1,570 @@
 (function () {
+  const U = window.AppUtils;
+  const C = U.COLORS;
   const bbox = window.MOCK_DATA.bbox;
-  const map = L.map("map").fitBounds([[bbox.south, bbox.west], [bbox.north, bbox.east]]);
-  const roadLayer = L.layerGroup().addTo(map), pocketLayer = L.layerGroup().addTo(map), pinLayer = L.layerGroup().addTo(map);
-  const state = { reports: [], filter: "pending", selected: null, manual: false, mode: "model" };
-  const list = document.getElementById("reportList"), detail = document.getElementById("detail");
-  const color = AppUtils.markerColor;
-  function roadStyle(road) { return { color: color(road.state), weight: road.state === "impassable" ? 7 : 4, opacity: .9, dashArray: road.state === "unknown" ? "10 8" : null }; }
-  function renderMap(roads, pockets) {
-    roads.forEach(road => L.polyline(road.coordinates, roadStyle(road)).bindTooltip(road.edge_id).addTo(roadLayer));
-    pockets.forEach(pocket => L.polygon(pocket.polygon, { color: "#6b7477", weight: 1, fillColor: "#899294", fillOpacity: .28, dashArray: "3 5" }).bindTooltip((pocket.lost_facility || "Severed pocket") + " · " + AppUtils.populationText(pocket)).addTo(pocketLayer));
+  const STATES = { road: ["passable", "impassable", "unknown"], building: ["damaged", "not_damaged", "unknown"] };
+  const el = id => document.getElementById(id);
+
+  const map = L.map("map", { zoomControl: false, attributionControl: false })
+    .fitBounds([[bbox.south, bbox.west], [bbox.north, bbox.east]]);
+  L.control.zoom({ position: "topright" }).addTo(map);
+  map.createPane("areas").style.zIndex = 390;
+
+  // 6,000+ spans: the base network is canvas or the map will not pan.
+  const netR = L.canvas({ padding: 0.3 }).addTo(map);
+  const svgR = L.svg({ padding: 0.3 }).addTo(map);
+  const areaR = L.svg({ padding: 0.3, pane: "areas" }).addTo(map);
+  const netL = L.layerGroup().addTo(map);
+  const cutL = L.layerGroup().addTo(map);
+  const areaL = L.layerGroup().addTo(map);
+  const pinL = L.layerGroup().addTo(map);
+  const areaShapes = new Map();
+  const cutShapes = new Map();
+
+  const S = {
+    reports: [], roads: [], pockets: [],
+    filter: "pending", sort: "priority_score", dir: -1,
+    report: null, pocket: null,
+    placing: false, point: null, marker: null
+  };
+
+  /* ------------------------------------------------------------------ map */
+
+  function reportedEdges() {
+    const set = new Set();
+    S.reports.forEach(r => {
+      if (r.asset_type === "road" && r.edge_id && r.status !== "rejected") set.add(r.edge_id);
+    });
+    return set;
   }
-  function markerFor(report) {
-    const icon = L.divIcon({ className: "", html: '<div class="report-marker ' + report.asset_type + '" style="background:' + color(report.state) + '"><span></span></div>', iconSize: [22, 22], iconAnchor: [11, 11] });
-    return L.marker([report.lat, report.lon], { icon }).on("click", () => select(report.id));
+
+  function drawRoads() {
+    netL.clearLayers();
+    cutL.clearLayers();
+    cutShapes.clear();
+    const reported = reportedEdges();
+
+    S.roads.forEach(function (road) {
+      const cut = road.state === "impassable";
+      const unsure = road.state === "unknown";
+
+      if (!cut && !unsure && !reported.has(road.edge_id)) {
+        L.polyline(road.coordinates, {
+          renderer: netR, interactive: false,
+          color: C.neutral, weight: U.roadWeight(road), opacity: 0.85
+        }).addTo(netL);
+        return;
+      }
+      const style = cut ? { color: C.bad, weight: 3.5, className: "cut" }
+        : unsure ? { color: C.unknown, weight: 2.5, dashArray: "6 5" }
+          : { color: C.affected, weight: Math.max(1.6, U.roadWeight(road) + 0.4) };
+
+      const line = L.polyline(road.coordinates, Object.assign({ renderer: svgR }, style))
+        .bindTooltip((road.name && road.name !== "<unnamed>" ? road.name : "Unnamed span") +
+          " · " + U.stateLabel(road.state))
+        .on("click", e => { if (S.placing) map.fire("click", e); })
+        .addTo(cutL);
+      if (cut) cutShapes.set(road.edge_id, line);
+    });
   }
-  function refreshPins() { pinLayer.clearLayers(); state.reports.forEach(report => markerFor(report).addTo(pinLayer)); }
-  function renderList() {
-    const visible = AppUtils.sortReports(state.reports.filter(report => state.filter === "closed" ? report.status !== "pending" : report.status === "pending"));
-    document.getElementById("mapCount").textContent = state.reports.length + " reports · " + visible.length + " " + state.filter;
-    document.getElementById("pendingCount").textContent = state.reports.filter(r => r.status === "pending").length;
-    document.getElementById("closedCount").textContent = state.reports.filter(r => r.status !== "pending").length;
-    list.innerHTML = visible.length ? visible.map(report => '<article class="report-row" id="report-' + report.id + '" data-id="' + report.id + '"><img class="thumb" src="' + report.image_path + '" alt=""><div><div class="row-top"><span class="type">' + report.asset_type + ' · ' + AppUtils.stateLabel(report.state) + '</span><span class="badge ' + report.status + '">' + report.status + '</span></div><div class="reason">' + AppUtils.escape(report.priority_reason || "No priority reason provided") + '</div><div class="meta"><span>' + Math.round(report.confidence * 100) + '% confidence</span><span>' + (report.n_reports > 1 ? report.n_reports + " corroborating reports" : "Single report") + '</span><span class="mode ' + report.detection_mode + '">' + report.detection_mode + '</span></div></div></article>').join("") : '<div class="empty">Nothing in this queue.</div>';
-    list.querySelectorAll(".report-row").forEach(row => row.addEventListener("click", () => select(Number(row.dataset.id))));
+
+  function drawAreas() {
+    areaL.clearLayers();
+    areaShapes.clear();
+    S.pockets.forEach(function (p) {
+      const edges = U.severingEdges(p);
+      const cause = edges.length === 1
+        ? "Blocked by " + (edges[0].name && edges[0].name !== "<unnamed>" ? edges[0].name : "an unnamed span")
+        : edges.length + " blocked roads cut this area off";
+
+      const shape = L.polygon(p.polygon, { renderer: areaR, pane: "areas", className: "pocket" })
+        .on("click", function (e) {
+          if (S.placing) return map.fire("click", e);
+          L.DomEvent.stop(e);
+          openPocket(p.id);
+        })
+        .addTo(areaL);
+
+      // A permanent, interactive tooltip is Leaflet's own clickable label. A
+      // divIcon marker here sits under the polygon and never gets the click.
+      shape.bindTooltip(
+        '<span class="tag-n">' + U.escape(U.populationText(p)) + "</span> cut off" +
+        '<span class="tag-why">Why?</span>' +
+        '<span class="tag-cause">' + U.escape(cause) + "</span>",
+        { permanent: true, interactive: true, direction: "center", className: "area-tag", opacity: 1 });
+
+      areaShapes.set(p.id, shape);
+      const path = shape._path;
+      if (!path) return;
+      path.setAttribute("tabindex", "0");
+      path.setAttribute("role", "button");
+      path.setAttribute("aria-label", "Area cut off, " + U.populationText(p) +
+        " people affected. " + cause + ". Open for the roads responsible.");
+      L.DomEvent.on(path, "keydown", function (e) {
+        if (e.key !== "Enter" && e.key !== " ") return;
+        L.DomEvent.stop(e);
+        openPocket(p.id);
+      });
+    });
   }
-  function select(id) {
-    const report = state.reports.find(item => item.id === id); if (!report) return;
-    state.selected = id;
-    list.querySelectorAll(".report-row").forEach(row => row.classList.toggle("selected", Number(row.dataset.id) === id));
-    const row = document.getElementById("report-" + id); if (row) row.scrollIntoView({ block: "nearest" });
-    map.setView([report.lat, report.lon], Math.max(map.getZoom(), 14));
-    detail.innerHTML = '<img src="' + report.image_path + '" alt="Report ' + report.id + '"><div class="detail-body"><div class="eyebrow">Reference #' + report.id + '</div><h2>' + report.asset_type + ' · ' + AppUtils.stateLabel(report.state) + '</h2><div class="field-grid"><div class="kv"><small>Confidence</small><strong>' + Math.round(report.confidence * 100) + '%</strong></div><div class="kv"><small>Detection</small><strong>' + report.detection_mode + '</strong></div><div class="kv"><small>GPS accuracy</small><strong>' + (report.gps_accuracy_m == null ? "unknown" : report.gps_accuracy_m + " m") + '</strong></div><div class="kv"><small>Priority score</small><strong>' + (report.priority_score == null ? "unranked" : report.priority_score) + '</strong></div></div><p class="reason">' + AppUtils.escape(report.priority_reason || "No priority reason provided") + '</p><div class="detail-actions">' + (report.status === "pending" ? '<button class="primary-btn" data-action="resolved">Confirm resolved</button><button class="danger-btn" data-action="rejected">Reject</button>' : '<span class="badge ' + report.status + '">Closed as ' + report.status + '</span>') + '</div></div>';
+
+  function drawPins() {
+    pinL.clearLayers();
+    S.reports.forEach(function (r) {
+      if (r.status === "rejected") return;
+      const colour = U.markerColor(r.state);
+      L.marker([r.lat, r.lon], {
+        icon: L.divIcon({
+          className: "",
+          html: '<div class="pin ' + r.asset_type + '" style="background:' + colour + ';color:' + colour + '"></div>',
+          iconSize: [11, 11], iconAnchor: [6, 6]
+        })
+      })
+        .bindTooltip(U.label("asset_type", r.asset_type) + " · " + U.stateLabel(r.state))
+        .on("click", () => openReport(r.id))
+        .addTo(pinL);
+    });
+  }
+
+  // Emphasise the spans responsible for a cut-off area.
+  function highlight(pocket) {
+    cutShapes.forEach(line => line._path && line._path.classList.remove("on"));
+    areaShapes.forEach(function (shape) {
+      if (shape._path) shape._path.classList.remove("on");
+      const t = shape.getTooltip && shape.getTooltip();
+      if (t && t._container) t._container.classList.remove("on");
+    });
+    if (!pocket) return;
+    const shape = areaShapes.get(pocket.id);
+    if (shape && shape._path) shape._path.classList.add("on");
+    const tip = shape && shape.getTooltip && shape.getTooltip();
+    if (tip && tip._container) tip._container.classList.add("on");
+    U.severingEdgeIds(pocket).forEach(function (id) {
+      const line = cutShapes.get(id);
+      if (line && line._path) line._path.classList.add("on");
+    });
+  }
+
+  /* --------------------------------------------------------------- figures */
+
+  function drawImpact() {
+    const s = U.impactSummary(S.reports, S.pockets);
+    el("figRoads").textContent = s.roadsImpassable.toLocaleString();
+    el("figAreas").textContent = s.areasSevered.toLocaleString();
+    el("figPeople").textContent = U.peopleText(s);
+    el("figWorking").textContent = S.reports.filter(r => r.status === "in_progress").length.toLocaleString();
+    el("impactNote").textContent = U.populationCaveat(s);
+  }
+
+  /* ----------------------------------------------------------------- queue */
+
+  // Three lanes: waiting on you, being worked, done with.
+  function inLane(r, lane) {
+    if (lane === "closed") return r.status === "resolved" || r.status === "rejected";
+    return r.status === lane;
+  }
+  function visible() {
+    return S.reports.filter(r => inLane(r, S.filter));
+  }
+
+  function sorted(list) {
+    const key = S.sort;
+    return list.slice().sort(function (a, b) {
+      const x = a[key], y = b[key];
+      if (x == null && y == null) return 0;
+      if (x == null) return 1;            // unranked and unknown always sort last
+      if (y == null) return -1;
+      if (typeof x === "number") return (x - y) * S.dir;
+      return String(x).localeCompare(String(y)) * S.dir;
+    });
+  }
+
+  const DOT = { bad: "bad", unknown: "warn", good: "ok" };
+
+  function cell(r) {
+    const band = U.priorityBand(r.priority_score);
+    const dot = DOT[U.stateClass(r.state)] || "";
+    const why = U.escape(r.priority_reason || "—");
+    return '<tr data-id="' + r.id + '" class="band-' + band.key + '"' +
+      (S.report === r.id ? ' aria-selected="true"' : "") + '>' +
+      '<td class="right"><span class="band band-' + band.key + '"><em>' + band.label + '</em>' +
+      (r.priority_score ? '<span class="v">' + Math.round(r.priority_score).toLocaleString() + '</span>' : "") +
+      '</span></td>' +
+      '<td>' + U.label("asset_type", r.asset_type) + '</td>' +
+      '<td><span class="dot ' + dot + (r.asset_type === "building" ? " building" : "") + '"></span>' +
+      U.stateLabel(r.state) + '</td>' +
+      '<td class="right num">' + r.n_reports + '</td>' +
+      '<td>' + U.label("detection_mode", r.detection_mode) + '</td>' +
+      '<td class="muted">' + U.escape(U.timeAgo(r.created_at)) + '</td>' +
+      '<td class="txt-' + U.statusClass(r.status) + '">' + U.label("status_short", r.status) + '</td>' +
+      '<td class="why" title="' + why + '">' + why + '</td></tr>';
+  }
+
+  function drawQueue() {
+    el("nPending").textContent = S.reports.filter(r => inLane(r, "pending")).length;
+    el("nProgress").textContent = S.reports.filter(r => inLane(r, "in_progress")).length;
+    el("nClosed").textContent = S.reports.filter(r => inLane(r, "closed")).length;
+
+    const list = sorted(visible());
+    const body = el("rows");
+    if (!list.length) {
+      body.innerHTML = '<tr><td class="empty" colspan="8">Nothing in this queue.</td></tr>';
+      return;
+    }
+    let split = false;
+    body.innerHTML = list.map(function (r) {
+      let head = "";
+      if (S.sort === "priority_score" && r.priority_score == null && !split) {
+        split = true;
+        head = '<tr class="divider"><td colspan="8">Not yet ranked</td></tr>';
+      }
+      return head + cell(r);
+    }).join("");
+
+    body.querySelectorAll("tr[data-id]").forEach(row =>
+      row.addEventListener("click", () => openReport(Number(row.dataset.id))));
+
+    document.querySelectorAll("thead th[data-sort]").forEach(function (th) {
+      const active = th.dataset.sort === S.sort;
+      if (active) th.setAttribute("aria-sort", S.dir === -1 ? "descending" : "ascending");
+      else th.removeAttribute("aria-sort");
+      const mark = th.querySelector(".sort");
+      if (mark) mark.remove();
+      if (active) th.querySelector("button").insertAdjacentHTML("beforeend",
+        '<span class="sort">' + (S.dir === -1 ? "▾" : "▴") + "</span>");
+    });
+  }
+
+  /* ---------------------------------------------------------------- detail */
+
+  const detail = el("detail");
+
+  function openDetail(title, html) {
+    detail.innerHTML = '<div class="detail-bar"><h2>' + title + '</h2>' +
+      '<button type="button" class="btn close" id="closeDetail">Close</button></div>' +
+      '<div class="detail-body">' + html + '</div>';
     detail.classList.add("open");
-    detail.querySelectorAll("[data-action]").forEach(button => button.addEventListener("click", () => act(report.id, button.dataset.action)));
+    detail.setAttribute("aria-hidden", "false");
+    el("closeDetail").addEventListener("click", closeDetail);
   }
-  async function act(id, status) { await API.updateStatus(id, status); const report = state.reports.find(item => item.id === id); if (report) report.status = status; detail.classList.remove("open"); renderList(); }
-  document.querySelectorAll(".tab").forEach(tab => tab.addEventListener("click", () => { state.filter = tab.dataset.status; document.querySelectorAll(".tab").forEach(item => item.classList.toggle("active", item === tab)); renderList(); }));
-  document.getElementById("modeSelect").addEventListener("change", async event => { state.mode = event.target.value; await API.updateSettings(state.mode); updateMode(); });
-  function updateMode() { const el = document.getElementById("modeStatus"); el.textContent = state.mode === "model" ? "OFFLINE MODEL" : "CLOUD API"; el.className = "badge " + (state.mode === "model" ? "resolved" : "pending"); }
-  document.getElementById("manualBtn").addEventListener("click", () => { state.manual = !state.manual; document.getElementById("manualBanner").classList.toggle("show", state.manual); });
-  map.on("click", async event => { if (!state.manual) return; state.manual = false; document.getElementById("manualBanner").classList.remove("show"); const assetType = prompt("Asset type: road or building", "road"); if (!assetType || !["road", "building"].includes(assetType)) return; const stateValue = prompt(assetType === "road" ? "State: passable, impassable or unknown" : "State: damaged, not_damaged or unknown", "unknown"); if (!stateValue) return; const report = await API.createReport({ lat: event.latlng.lat, lon: event.latlng.lng, asset_type: assetType, state: stateValue, image_path: "mocks/images/report-6.svg" }); state.reports.unshift(report); refreshPins(); renderList(); select(report.id); });
-  Promise.all([API.getReports(), API.getRoads(), API.getPockets(), API.getSettings()]).then(([reports, roads, pockets, settings]) => { state.reports = reports; state.mode = settings.detection_mode; document.getElementById("modeSelect").value = state.mode; updateMode(); renderMap(roads, pockets); refreshPins(); renderList(); });
+
+  function closeDetail() {
+    detail.classList.remove("open");
+    detail.setAttribute("aria-hidden", "true");
+    detail.innerHTML = "";
+    S.report = null;
+    S.pocket = null;
+    highlight(null);
+    cancelPlacing();
+    drawQueue();
+  }
+
+  const dd = (k, v) => "<dt>" + k + "</dt><dd>" + v + "</dd>";
+
+  // Which cut-off areas this report's span is responsible for.
+  function areasCausedBy(report) {
+    if (!report.edge_id) return [];
+    return S.pockets.filter(p => U.severingEdgeIds(p).indexOf(report.edge_id) !== -1);
+  }
+
+  const ACTION_LABEL = {
+    in_progress: "Accept — start work",
+    resolved: "Mark resolved",
+    pending: "Send back to pending",
+    rejected: "Dismiss"
+  };
+
+  function openReport(id, fromPocket) {
+    const r = S.reports.find(x => x.id === id);
+    if (!r) return;
+    S.report = id;
+    S.pocket = fromPocket || null;
+    if (!fromPocket) highlight(null);
+    drawQueue();
+    map.setView([r.lat, r.lon], Math.max(map.getZoom(), 15));
+
+    const band = U.priorityBand(r.priority_score);
+    const causes = areasCausedBy(r);
+    const moves = U.nextStatuses(r.status);
+    const stateOpts = STATES[r.asset_type] || [];
+
+    openDetail("Report #" + r.id + " · " + U.label("asset_type", r.asset_type) + " · " + U.stateLabel(r.state),
+      '<div class="cols">' +
+      (r.image_path ? '<img src="' + U.escape(r.image_path) + '" alt="Field photo for report ' + r.id + '">' : '<div class="note">No photo attached.</div>') +
+
+      '<div><dl>' +
+      dd("State", '<span class="txt-' + (DOT[U.stateClass(r.state)] || "neutral") + '">' + U.stateLabel(r.state) + "</span>") +
+      dd("Status", '<span class="txt-' + U.statusClass(r.status) + '">' + U.label("status", r.status) + "</span>") +
+      dd("Priority", '<span class="band band-' + band.key + '" style="justify-content:flex-start"><em>' + band.label + "</em>" +
+        (r.priority_score ? '<span class="v">' + Math.round(r.priority_score).toLocaleString() + "</span>" : "") + "</span>") +
+      dd("Reported", U.escape(U.timeAgo(r.created_at)) +
+        ' <span class="aside num">' + U.escape(String(r.created_at || "").slice(0, 16).replace("T", " ")) + "</span>") +
+      dd("Confidence", '<span class="num">' + Math.round(r.confidence * 100) + "%</span>" +
+        (r.detection_mode === "manual" ? ' <span class="aside">operator asserted</span>' : "")) +
+      dd("Source", U.label("detection_mode", r.detection_mode)) +
+      dd("Corroboration", r.n_reports > 1 ? r.n_reports + " reports on this span" : "Single report") +
+      dd("Location", '<span class="num">' + r.lat.toFixed(5) + ", " + r.lon.toFixed(5) + "</span>" +
+        (r.gps_accuracy_m == null ? ' <span class="aside">accuracy unrecorded</span>'
+          : ' <span class="aside">±' + r.gps_accuracy_m + " m</span>")) +
+      dd("Road span", r.edge_id ? '<span class="num">' + U.escape(r.edge_id) + "</span>" : "Not bound to a road") +
+      "</dl></div>" +
+
+      "<div>" +
+      '<div class="block"><h3>Assessment</h3><div>' +
+      U.escape(r.priority_reason || "No assessment recorded.") + "</div></div>" +
+
+      (causes.length
+        ? '<div class="block"><h3>Consequence</h3><ul class="rows">' + causes.map(p =>
+            '<li><button type="button" class="line" data-area="' + U.escape(p.id) + '">' +
+            '<span class="grow">Cuts off ' + U.escape(U.populationText(p)) + " people from " +
+            U.escape(p.lost_facility || "care") + "</span>" +
+            '<span class="aside">see area →</span></button></li>').join("") + "</ul></div>"
+        : "") +
+
+      (r.state === "unknown"
+        ? '<div class="block"><h3>Classify</h3>' +
+          '<p class="note">The detector could not tell. If the photo can, set it here — that is an operator assertion, so it is recorded as manual at full confidence.</p>'
+        : '<div class="block"><h3>Correct the state if wrong</h3>') +
+      '<div class="inline">' + stateOpts.filter(v => v !== r.state).map(v =>
+        '<button type="button" class="btn" data-state="' + v + '">Mark ' +
+        U.stateLabel(v).toLowerCase() + "</button>").join("") + "</div></div>" +
+
+      '<div class="block"><h3>Workflow</h3><div class="inline">' +
+      (moves.length
+        ? moves.map((next, i) =>
+            '<button type="button" class="btn ' +
+            (next === "rejected" ? "btn-danger" : i === 0 ? "btn-primary" : "") +
+            '" data-act="' + next + '">' + ACTION_LABEL[next] + "</button>").join("")
+        : '<span class="note">No moves available.</span>') +
+      "</div></div>" +
+
+      (fromPocket ? '<div class="block"><button type="button" class="btn" id="backArea">← Back to cut-off area</button></div>' : "") +
+      "</div></div>");
+
+    detail.querySelectorAll("[data-act]").forEach(b =>
+      b.addEventListener("click", () => move(r.id, b.dataset.act)));
+    detail.querySelectorAll("[data-state]").forEach(b =>
+      b.addEventListener("click", () => reclassify(r.id, b.dataset.state)));
+    detail.querySelectorAll("[data-area]").forEach(b =>
+      b.addEventListener("click", () => openPocket(b.dataset.area)));
+    const back = el("backArea");
+    if (back) back.addEventListener("click", () => openPocket(fromPocket));
+  }
+
+  function openPocket(id) {
+    const p = S.pockets.find(x => x.id === id);
+    if (!p) return;
+    S.pocket = id;
+    S.report = null;
+    drawQueue();
+    highlight(p);
+    if (p.polygon && p.polygon.length) map.fitBounds(L.latLngBounds(p.polygon), { padding: [40, 40], maxZoom: 15 });
+
+    const known = p.population != null && p.population_source !== "missing";
+    const edges = U.severingEdges(p);
+    const byId = {};
+    S.reports.forEach(r => { byId[r.id] = r; });
+    const ids = U.pocketReportIds(p);
+    const inside = p.population_settlements || [];
+
+    openDetail("Area cut off · " + (p.lost_facility ? "lost " + U.escape(p.lost_facility) : "no facility in reach"),
+      '<div class="cols">' +
+      '<div><dl>' +
+      dd("People affected", known
+        ? '<span class="num">' + U.populationText(p) + "</span>"
+        : '<span class="txt-warn">Unknown</span>') +
+      dd("Source", U.label("population_source", p.population_source)) +
+      (p.population_coverage && p.population_coverage !== "full"
+        ? dd("Coverage", '<span class="txt-warn">' + U.label("population_coverage", p.population_coverage) + "</span>") : "") +
+      dd("Lost access to", U.escape(p.lost_facility || "No facility in reach")) +
+      dd("Prior access", '<span class="num">' + U.kmText(p.prior_access_km) + "</span>") +
+      dd("Area", '<span class="num">' + U.areaText(p.hull_area_km2) + "</span>") +
+      dd("Junctions", '<span class="num">' + (p.n_nodes == null ? "—" : p.n_nodes.toLocaleString()) + "</span>") +
+      '</dl>' +
+      (known ? "" : '<p class="note">Not measured — not zero. The raster holds no valid count here.</p>') +
+      '</div>' +
+
+      '<div class="block"><h3>Roads causing the cut' + (edges.length > 1 ? " (" + edges.length + ")" : "") + '</h3>' +
+      (edges.length
+        ? '<ul class="rows">' + edges.map(e =>
+            '<li><div class="line"><span class="grow">' +
+            U.escape(e.name && e.name !== "<unnamed>" ? e.name : "Unnamed span") +
+            (e.bridge ? ' <span class="txt-bad">· bridge</span>' : "") +
+            '</span><span class="aside">' + U.escape(U.highwayLabel(e.highway)) + " · " +
+            U.metresText(e.length_m) + "</span></div></li>").join("") + "</ul>" +
+          (edges.length > 1 ? '<p class="note">Clearing any one of these may not reconnect the area.</p>' : "")
+        : '<p class="note">No severing span recorded.</p>') +
+      '</div>' +
+
+      '<div><div class="block"><h3>Reports behind the blockage</h3>' +
+      (ids.length
+        ? '<ul class="rows">' + ids.map(function (rid) {
+            const r = byId[rid];
+            return '<li><button type="button" class="line" data-report="' + rid + '">' +
+              '<span class="grow">Report #' + rid + (r ? " · " + U.stateLabel(r.state) : "") + "</span>" +
+              '<span class="aside">' + (r ? U.label("status_short", r.status) : "not loaded") + " →</span></button></li>";
+          }).join("") + "</ul>"
+        : '<p class="note">No live report attached.</p>') +
+      '</div>' +
+      '<div class="block"><h3>Nearest named place</h3>' +
+      (p.nearest_place
+        ? "<div>" + U.escape(p.nearest_place) + ' <span class="aside num">' + U.kmText(p.nearest_place_km) + "</span></div>" +
+          '<p class="note">A map label for orientation only — not necessarily inside this area, and it did not decide the severance.</p>'
+        : '<p class="note">No named place nearby.</p>') +
+      (inside.length
+        ? '<h3 style="margin-top:var(--s3)">Settlements inside</h3><div>' + inside.map(U.escape).join(", ") + "</div>"
+        : "") +
+      '</div></div></div>');
+
+    detail.querySelectorAll("[data-report]").forEach(b =>
+      b.addEventListener("click", () => openReport(Number(b.dataset.report), id)));
+  }
+
+  async function move(id, status) {
+    await API.updateStatus(id, status);
+    S.filter = status === "resolved" || status === "rejected" ? "closed" : status;
+    syncFilters();
+    await load();
+    openReport(id, S.pocket);
+  }
+
+  async function reclassify(id, state) {
+    await API.updateState(id, state);
+    await load();
+    openReport(id, S.pocket);
+  }
+
+  /* ------------------------------------------------------- manual reporter */
+
+  function stateOptions(asset) {
+    return STATES[asset].map(v => '<option value="' + v + '">' + U.stateLabel(v) + "</option>").join("");
+  }
+
+  function cancelPlacing() {
+    S.placing = false;
+    el("mapwrap").classList.remove("placing");
+    el("hint").classList.remove("on");
+    if (S.marker) { map.removeLayer(S.marker); S.marker = null; }
+    S.point = null;
+  }
+
+  el("addBtn").addEventListener("click", function () {
+    closeDetail();
+    S.placing = true;
+    el("mapwrap").classList.add("placing");
+    el("hint").classList.add("on");
+  });
+
+  map.on("click", function (e) {
+    if (!S.placing) return;
+    S.point = e.latlng;
+    if (S.marker) map.removeLayer(S.marker);
+    S.marker = L.marker(e.latlng, {
+      icon: L.divIcon({
+        className: "",
+        html: '<div class="pin road" style="background:' + C.unknown + ';color:' + C.unknown + '"></div>',
+        iconSize: [11, 11], iconAnchor: [6, 6]
+      })
+    }).addTo(map);
+    el("hint").classList.remove("on");
+    el("mapwrap").classList.remove("placing");
+    openForm();
+  });
+
+  function openForm() {
+    openDetail("New report · " + S.point.lat.toFixed(5) + ", " + S.point.lng.toFixed(5),
+      '<div class="cols"><div>' +
+      '<div class="field"><label class="label" for="fAsset">What is affected</label>' +
+      '<select id="fAsset"><option value="road">Road</option><option value="building">Building</option></select></div>' +
+      '<div class="field"><label class="label" for="fState">Observed state</label>' +
+      '<select id="fState">' + stateOptions("road") + "</select></div>" +
+      '<div class="err" id="fErr" role="alert"></div>' +
+      '<div class="actions"><button type="button" class="btn btn-primary" id="fSave">File report</button>' +
+      '<button type="button" class="btn" id="fCancel">Cancel</button></div>' +
+      '</div><div class="note">The report is bound to the nearest road span and scored against the network before it enters the queue.</div></div>');
+
+    const asset = el("fAsset"), obs = el("fState"), err = el("fErr");
+    asset.addEventListener("change", () => { obs.innerHTML = stateOptions(asset.value); });
+    el("fCancel").addEventListener("click", closeDetail);
+    el("fSave").addEventListener("click", async function () {
+      if (!S.point) return fail(err, "Place a point on the map first.");
+      if (!STATES[asset.value]) return fail(err, "Choose road or building.");
+      if (STATES[asset.value].indexOf(obs.value) === -1) {
+        return fail(err, U.stateLabel(obs.value) + " is not a valid state for a " + asset.value + ".");
+      }
+      err.classList.remove("on");
+      await API.createReport({
+        lat: S.point.lat, lon: S.point.lng,
+        asset_type: asset.value, state: obs.value, image_path: "mocks/images/report-6.svg"
+      });
+      cancelPlacing();
+      closeDetail();
+      S.filter = "pending";
+      syncFilters();
+      await load();
+    });
+  }
+
+  function fail(node, message) { node.textContent = message; node.classList.add("on"); }
+
+  /* ---------------------------------------------------------------- chrome */
+
+  function syncFilters() {
+    document.querySelectorAll(".filter").forEach(f =>
+      f.setAttribute("aria-selected", String(f.dataset.status === S.filter)));
+  }
+
+  document.querySelectorAll(".filter").forEach(f => f.addEventListener("click", function () {
+    S.filter = f.dataset.status;
+    syncFilters();
+    drawQueue();
+  }));
+
+  document.querySelectorAll("thead th[data-sort]").forEach(th =>
+    th.querySelector("button").addEventListener("click", function () {
+      const key = th.dataset.sort;
+      // Numbers open descending (worst first); text opens ascending.
+      if (S.sort === key) S.dir = -S.dir;
+      else { S.sort = key; S.dir = ["asset_type", "state", "detection_mode", "priority_reason", "status"].indexOf(key) === -1 ? -1 : 1; }
+      drawQueue();
+    }));
+
+  el("mode").addEventListener("change", async e => { await API.updateSettings(e.target.value); });
+
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && (S.placing || detail.classList.contains("open"))) closeDetail();
+  });
+
+  function tick() {
+    const now = new Date();
+    el("clock").textContent = "Surathkal · " +
+      now.toLocaleDateString(undefined, { day: "2-digit", month: "short" }) + " " +
+      now.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  }
+
+  /* ------------------------------------------------------------------ load */
+
+  async function load() {
+    const [reports, roads, pockets] = await Promise.all([API.getReports(), API.getRoads(), API.getPockets()]);
+    S.reports = reports;
+    S.roads = roads;
+    S.pockets = pockets;
+    drawRoads();
+    drawAreas();
+    drawPins();
+    drawQueue();
+    drawImpact();
+    if (S.pocket) {
+      const open = S.pockets.find(p => p.id === S.pocket);
+      if (open) highlight(open); else closeDetail();
+    }
+  }
+
+  tick();
+  setInterval(tick, 30000);
+  API.getSettings().then(function (settings) {
+    el("mode").value = settings.detection_mode;
+    syncFilters();
+    return load();
+  });
 })();
