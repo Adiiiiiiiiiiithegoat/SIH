@@ -119,7 +119,7 @@
       edge_id: edge ? edge.edge_id : null,
       n_reports: 1,
       status: "pending",
-      detection_mode: "model",
+      detection_mode: "api",
       priority_score: null,
       priority_reason: "Routine assessment; no access loss detected",
       created_at: new Date(Date.UTC(2026, 7, 30, 6 + (nextId % 9), (nextId * 7) % 60, nextId % 60)).toISOString()
@@ -136,7 +136,7 @@
   // means the road is open again, so it could not still be cutting Mukka off.
   report(severedEdgeB, {
     state: "impassable", status: "in_progress", confidence: 0.91, n_reports: 3, gps_accuracy_m: 4.2,
-    detection_mode: "model", priority_score: 8104.0,
+    detection_mode: "api", priority_score: 8104.0,
     priority_reason: "Cuts Mukka from the Surathkal Primary Health Centre approach"
   });
   // Second span cutting the same pocket as severedEdgeB — clearing either one
@@ -148,7 +148,7 @@
   });
   // Rejected impassable claim — must not count anywhere.
   report(trunk[31], {
-    state: "impassable", status: "rejected", confidence: 0.55, detection_mode: "model",
+    state: "impassable", status: "rejected", confidence: 0.55, detection_mode: "api",
     priority_score: 2140.6, priority_reason: "Photo shows standing water only; carriageway remained open"
   });
 
@@ -161,7 +161,7 @@
     { asset_type: "road", state: "passable", reason: "Single lane usable past the fallen tree" },
     { asset_type: "building", state: "unknown", reason: "Frame obscured; classification withheld" }
   ];
-  const modes = ["api", "model", "manual"];
+  const modes = ["api", "manual"];
   const pool = trunk.concat(primary, secondary);
   for (let i = 0; i < 27; i += 1) {
     const filler = fillers[i % fillers.length];
@@ -170,7 +170,7 @@
       asset_type: filler.asset_type,
       state: filler.state,
       status: i % 6 === 4 ? "resolved" : i % 11 === 9 ? "rejected" : "pending",
-      detection_mode: modes[i % 3],
+      detection_mode: modes[i % modes.length],
       gps_accuracy_m: i % 4 === 3 ? null : Number((4 + (i % 9) * 1.6).toFixed(1)),
       n_reports: i % 6 === 0 ? 3 : i % 4 === 0 ? 2 : 1,
       edge_id: filler.asset_type === "road" ? pool[(i * 37) % pool.length].edge_id : null,
@@ -262,8 +262,36 @@
     }
   ];
 
+  // Detour zones the backend's Dijkstra pass returns -- areas that keep a
+  // route to care, but a longer one. Static here; the live engine drives the
+  // real path. Shape matches severance.py::_detours().
+  const detours = [
+    {
+      id: "detour-1", nodes: [], n_nodes: 143,
+      polygon: hull(13.0405, 74.7995, 0.0125, 0.0110), centroid: [13.0405, 74.7995],
+      added_km: 3.1, median_added_km: 1.8,
+      population: 5120, population_source: "raster",
+      nearest_place: "Kateel Road", nearest_place_km: 0.5
+    },
+    {
+      id: "detour-2", nodes: [], n_nodes: 61,
+      polygon: hull(13.0855, 74.7965, 0.0080, 0.0072), centroid: [13.0855, 74.7965],
+      added_km: 1.4, median_added_km: 0.9,
+      population: 1830, population_source: "census",
+      nearest_place: "Haleyangadi", nearest_place_km: 0.7
+    }
+  ];
+
+  // The live-adjustable scoring constants, at their app/config.py defaults.
+  const settings = {
+    population_exponent: 0.4, disconnect_penalty: 300, unknown_belief: 0.5,
+    corroboration_weight: 0.4, confirmation_boost: 1.25, assumed_speed_kmh: 35,
+    default_gps_accuracy_m: 25, detour_threshold_m: 500, min_pocket_nodes: 3,
+    min_hull_km2: 0.01, max_prior_access_m: 10000, min_endpoint_degree: 3
+  };
+
   window.MOCK_DATA = {
-    bbox, reports, roads, pockets, latentPockets, severingEdge,
-    settings: { detection_mode: "model" }
+    bbox, reports, roads, pockets, latentPockets, detours, severingEdge,
+    settings: settings
   };
 })();

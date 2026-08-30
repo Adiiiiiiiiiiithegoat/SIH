@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Report damage · Responda</title>
+  <title>Report damage · NETRA</title>
   <meta name="description" content="Send a photo of a damaged road or building. Location is read from the file so response teams can see which communities may have lost access.">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='10' fill='%23ff9933'/><rect y='10' width='32' height='12' fill='%23ffffff'/><rect y='22' width='32' height='10' fill='%23138808'/><circle cx='16' cy='16' r='4' fill='none' stroke='%23000080' stroke-width='1.6'/></svg>">
   <link rel="stylesheet" href="vendor/leaflet.css">
@@ -11,7 +11,7 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="wordmark"><i class="mark"></i>Responda <span>Field report</span></div>
+    <div class="wordmark"><i class="mark"></i>NETRA <span>Field report</span></div>
     <div class="topbar-right"><a href="dashboard.html">Operations console</a></div>
   </header>
   <div class="accent-rule"></div>
@@ -40,7 +40,9 @@
         <div id="placeResults" class="geosearch-results" role="listbox" aria-label="Matching places"></div>
       </div>
 
-      <div id="locator" class="locator" aria-label="Report location"></div>
+      <div id="locator" class="locator" aria-label="Report location">
+        <div class="loading" id="locLoading">Loading map…</div>
+      </div>
       <p class="note">Click the map, drag the marker, or search above — whichever gets you to the right spot fastest.</p>
 
       <div class="grid2">

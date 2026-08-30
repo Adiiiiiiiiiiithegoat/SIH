@@ -10,6 +10,7 @@
   L.control.zoom({ position: "topright" }).addTo(map);
   L.control.attribution({ prefix: false, position: "bottomright" }).addTo(map);
   map.createPane("areas").style.zIndex = 390;
+  map.createPane("detours").style.zIndex = 380;   // under the severed-pocket pane
 
   // Light gray canvas by default, satellite one click away -- same toggle
   // Google Maps uses. The drawn network and pockets need a white halo once
@@ -18,12 +19,24 @@
   // are a second transparent layer stacked on top -- grouped with the base
   // so the layer control still shows one "Map" choice, not two.
   const B = U.BASEMAPS;
+  const baseTiles = L.tileLayer(B.map.url, Object.assign({ attribution: B.map.attribution }, B.map.options));
   const baseLayer = L.layerGroup([
-    L.tileLayer(B.map.url, Object.assign({ attribution: B.map.attribution }, B.map.options)),
+    baseTiles,
     L.tileLayer(B.map.labelsUrl, B.map.options)
   ]).addTo(map);
+
+  // Drop the "Loading map…" cover once the visible tiles are in -- or after a
+  // few seconds regardless, so a tile CDN hiccup can't leave it stuck on.
+  const hideMapLoading = () => { const n = el("mapLoading"); if (n) n.hidden = true; };
+  baseTiles.once("load", hideMapLoading);
+  setTimeout(hideMapLoading, 4000);
   const satLayer = L.tileLayer(B.satellite.url, Object.assign({ attribution: B.satellite.attribution }, B.satellite.options));
-  L.control.layers({ "Map": baseLayer, "Satellite": satLayer }, null, { position: "topright", collapsed: false }).addTo(map);
+  // Detour zones are opt-in -- an unchecked overlay so they never compete with
+  // the severed pockets, which are the headline.
+  const detourR = L.svg({ padding: 0.3, pane: "detours" });
+  const detourL = L.layerGroup();
+  L.control.layers({ "Map": baseLayer, "Satellite": satLayer },
+    { "Detour zones": detourL }, { position: "topright", collapsed: false }).addTo(map);
   map.on("baselayerchange", e => map.getContainer().classList.toggle("sat-mode", e.name === "Satellite"));
 
   // 6,000+ spans: the base network is canvas or the map will not pan.
@@ -39,7 +52,7 @@
   const pinShapes = new Map();
 
   const S = {
-    reports: [], roads: [], pockets: [],
+    reports: [], roads: [], pockets: [], detours: [],
     filter: "pending", sort: "priority_score", dir: -1,
     report: null, pocket: null,
     placing: false, point: null, marker: null
@@ -151,6 +164,18 @@
     });
   }
 
+  function drawDetours() {
+    detourL.clearLayers();
+    (S.detours || []).forEach(function (d) {
+      if (!d.polygon || d.polygon.length < 3) return;
+      const people = U.populationText({ population: d.population, population_source: d.population_source });
+      L.polygon(d.polygon, { renderer: detourR, pane: "detours", className: "detour" })
+        .bindTooltip("+" + Number(d.added_km || 0).toFixed(1) + " km detour · " + people + " people",
+          { sticky: true })
+        .addTo(detourL);
+    });
+  }
+
   // A one-shot highlight (CSS transition, not a looping animation -- this
   // product's design rule is no keyframes) so a report or pocket that just
   // appeared between refreshes catches the eye without redrawing anything.
@@ -194,13 +219,22 @@
 
   /* --------------------------------------------------------------- figures */
 
+  // A figure only earns its place in the bar when it has something to say --
+  // no bridges down means no "0 bridges" clutter next to real numbers.
+  function drawOptionalFigure(wrapId, valueId, count) {
+    el(wrapId).hidden = count === 0;
+    if (count > 0) el(valueId).textContent = count.toLocaleString();
+  }
+
   function drawImpact() {
-    const s = U.impactSummary(S.reports, S.pockets);
+    const s = U.impactSummary(S.reports, S.pockets, S.roads);
     el("figRoads").textContent = s.roadsImpassable.toLocaleString();
     el("figAreas").textContent = s.areasSevered.toLocaleString();
     el("figPeople").textContent = U.peopleText(s);
     el("figWorking").textContent = S.reports.filter(r => r.status === "in_progress").length.toLocaleString();
     el("impactNote").textContent = U.populationCaveat(s);
+    drawOptionalFigure("figBridgesWrap", "figBridges", s.bridgesImpassable);
+    drawOptionalFigure("figBuildingsWrap", "figBuildings", s.buildingsDamaged);
   }
 
   /* ----------------------------------------------------------------- queue */
@@ -234,6 +268,7 @@
     const why = U.escape(r.priority_reason || "—");
     return '<tr data-id="' + r.id + '" class="band-' + band.key + '"' +
       (S.report === r.id ? ' aria-selected="true"' : "") + '>' +
+      '<td class="num muted">#' + r.id + '</td>' +
       '<td class="right"><span class="band band-' + band.key + '"><em>' + band.label + '</em>' +
       (r.priority_score ? '<span class="v">' + Math.round(r.priority_score).toLocaleString() + '</span>' : "") +
       '</span></td>' +
@@ -255,7 +290,7 @@
     const list = sorted(visible());
     const body = el("rows");
     if (!list.length) {
-      body.innerHTML = '<tr><td class="empty" colspan="8">Nothing in this queue.</td></tr>';
+      body.innerHTML = '<tr><td class="empty" colspan="9">Nothing in this queue.</td></tr>';
       return;
     }
     let split = false;
@@ -263,7 +298,7 @@
       let head = "";
       if (S.sort === "priority_score" && r.priority_score == null && !split) {
         split = true;
-        head = '<tr class="divider"><td colspan="8">Not yet ranked</td></tr>';
+        head = '<tr class="divider"><td colspan="9">Not yet ranked</td></tr>';
       }
       return head + cell(r);
     }).join("");
@@ -285,6 +320,33 @@
   /* ---------------------------------------------------------------- detail */
 
   const detail = el("detail");
+
+  /* Full-screen field photo. Click a report thumbnail to open; click the photo
+     to toggle actual-pixels zoom; click the backdrop or press Esc to close. */
+  const lightbox = el("lightbox");
+  const lightboxImg = el("lightboxImg");
+
+  function openLightbox(src) {
+    lightboxImg.src = src;
+    lightbox.classList.remove("zoomed");
+    lightbox.classList.add("open");
+    lightbox.setAttribute("aria-hidden", "false");
+  }
+
+  function closeLightbox() {
+    lightbox.classList.remove("open", "zoomed");
+    lightbox.setAttribute("aria-hidden", "true");
+    lightboxImg.removeAttribute("src");
+  }
+
+  detail.addEventListener("click", function (e) {
+    const img = e.target.closest("img.zoomable");
+    if (img) openLightbox(img.src);
+  });
+  lightbox.addEventListener("click", function (e) {
+    if (e.target === lightboxImg) lightbox.classList.toggle("zoomed");
+    else closeLightbox();
+  });
 
   function openDetail(title, html) {
     detail.innerHTML = '<div class="detail-bar"><h2>' + title + '</h2>' +
@@ -314,6 +376,11 @@
     return S.pockets.filter(p => U.severingEdgeIds(p).indexOf(report.edge_id) !== -1);
   }
 
+  function roadNameSuffix(edgeId) {
+    const road = S.roads.find(rd => rd.edge_id === edgeId);
+    return road && road.name && road.name !== "<unnamed>" ? " — " + U.escape(road.name) : "";
+  }
+
   function openReport(id, fromPocket) {
     const r = S.reports.find(x => x.id === id);
     if (!r) return;
@@ -330,7 +397,7 @@
 
     openDetail("Report #" + r.id + " · " + U.label("asset_type", r.asset_type) + " · " + U.stateLabel(r.state),
       '<div class="cols">' +
-      (r.image_path ? '<img src="' + U.escape(r.image_path) + '" alt="Field photo for report ' + r.id + '">' : '<div class="note">No photo attached.</div>') +
+      (r.image_path ? '<img class="zoomable" src="' + U.escape(r.image_path) + '" alt="Field photo for report ' + r.id + '" title="Click to view full screen">' : '<div class="note">No photo attached.</div>') +
 
       '<div><dl>' +
       dd("State", '<span class="txt-' + (DOT[U.stateClass(r.state)] || "neutral") + '">' + U.stateLabel(r.state) + "</span>") +
@@ -369,6 +436,16 @@
         '<button type="button" class="btn" data-state="' + v + '">Mark ' +
         U.stateLabel(v).toLowerCase() + "</button>").join("") + "</div></div>" +
 
+      (r.asset_type === "road"
+        ? '<div class="block"><h3>Road binding</h3>' +
+          '<p class="note">Bound to ' +
+          (r.edge_id ? '<span class="num">' + U.escape(r.edge_id) + "</span>" + roadNameSuffix(r.edge_id)
+            : "no road span") +
+          ". Wrong span? Re-bind it to a nearby candidate.</p>" +
+          '<div class="inline"><button type="button" class="btn" id="rebindBtn">Change binding</button></div>' +
+          '<div id="rebindArea"></div></div>'
+        : "") +
+
       '<div class="block"><h3>Workflow</h3><div class="inline">' +
       (moves.length
         ? moves.map((next, i) =>
@@ -382,13 +459,43 @@
       "</div></div>");
 
     detail.querySelectorAll("[data-act]").forEach(b =>
-      b.addEventListener("click", () => move(r.id, b.dataset.act)));
+      b.addEventListener("click", () => U.busy(b, () => move(r.id, b.dataset.act))));
     detail.querySelectorAll("[data-state]").forEach(b =>
-      b.addEventListener("click", () => reclassify(r.id, b.dataset.state)));
+      b.addEventListener("click", () => U.busy(b, () => reclassify(r.id, b.dataset.state))));
     detail.querySelectorAll("[data-area]").forEach(b =>
       b.addEventListener("click", () => openPocket(b.dataset.area)));
     const back = el("backArea");
     if (back) back.addEventListener("click", () => openPocket(fromPocket));
+    const rebindBtn = el("rebindBtn");
+    if (rebindBtn) rebindBtn.addEventListener("click", () => U.busy(rebindBtn, () => openRebind(r)));
+  }
+
+  // Lazily fetch the candidate shortlist (only GET /api/reports/{id} carries
+  // it) and let the operator re-point a mis-bound photo at a nearby span.
+  async function openRebind(r) {
+    const full = await API.getReport(r.id);
+    const roadsById = {};
+    S.roads.forEach(rd => { roadsById[rd.edge_id] = rd; });
+    const opts = U.bindOptions(full, roadsById);
+    const area = el("rebindArea");
+    if (!area) return;
+    if (!opts.length) {
+      area.innerHTML = '<p class="note">No candidate spans recorded for this report.</p>';
+      return;
+    }
+    area.innerHTML = '<div class="field"><label class="label" for="rebindSel">Bind to</label>' +
+      '<select id="rebindSel">' + opts.map(o =>
+        '<option value="' + U.escape(o.edge_id) + '"' + (o.current ? " selected" : "") + ">" +
+        U.escape(o.label) + "</option>").join("") + "</select></div>" +
+      '<div class="inline"><button type="button" class="btn btn-primary" id="rebindApply">Apply binding</button></div>';
+    el("rebindApply").addEventListener("click", () => U.busy(el("rebindApply"), async function () {
+      const val = el("rebindSel").value;
+      if (val && val !== full.edge_id) {
+        await API.updateEdge(r.id, val);
+        await load();
+      }
+      openReport(r.id, S.pocket);
+    }));
   }
 
   function openPocket(id) {
@@ -460,6 +567,42 @@
       b.addEventListener("click", () => openReport(Number(b.dataset.report), id)));
   }
 
+  // The live scoring constants (GET/POST /api/settings). An escape hatch for
+  // an operator who needs to retune in the field -- plain number inputs, no
+  // per-key help; whoever opens this knows what the weights mean.
+  async function openSettings() {
+    const s = await API.getSettings();
+    const keys = Object.keys(s);
+    if (!keys.length) {
+      openDetail("Priority tuning", '<p class="note">No adjustable settings reported by the server.</p>');
+      return;
+    }
+    openDetail("Priority tuning",
+      '<p class="note">Live scoring constants. Saving applies them and re-ranks the whole queue. ' +
+      'These came out of a parameter sweep — change them only with a reason.</p>' +
+      '<div class="settings-grid">' + keys.map(k =>
+        '<div class="field"><label class="label" for="set-' + k + '">' + U.escape(k.replace(/_/g, " ")) + "</label>" +
+        '<input type="number" step="any" id="set-' + k + '" value="' + U.escape(String(s[k])) + '"></div>').join("") +
+      "</div>" +
+      '<div class="inline"><button type="button" class="btn btn-primary" id="setSave">Save &amp; re-rank</button>' +
+      '<button type="button" class="btn" id="setReload">Discard changes</button></div>' +
+      '<div class="err" id="setErr" role="alert"></div>');
+    el("setReload").addEventListener("click", openSettings);
+    el("setSave").addEventListener("click", () => U.busy(el("setSave"), async function () {
+      const body = {};
+      let bad = null;
+      keys.forEach(function (k) {
+        const v = Number(el("set-" + k).value);
+        if (!Number.isFinite(v)) bad = k;
+        body[k] = v;
+      });
+      if (bad) return fail(el("setErr"), U.escape(bad.replace(/_/g, " ")) + " must be a number.");
+      await API.setSettings(body);
+      closeDetail();
+      await load();
+    }));
+  }
+
   async function move(id, status) {
     await API.updateStatus(id, status);
     S.filter = status === "resolved" || status === "rejected" ? "closed" : status;
@@ -495,6 +638,8 @@
     el("hint").classList.add("on");
   });
 
+  el("tuneBtn").addEventListener("click", () => U.busy(el("tuneBtn"), openSettings));
+
   map.on("click", function (e) {
     if (!S.placing) return;
     S.point = e.latlng;
@@ -526,22 +671,24 @@
     const asset = el("fAsset"), obs = el("fState"), err = el("fErr");
     asset.addEventListener("change", () => { obs.innerHTML = stateOptions(asset.value); });
     el("fCancel").addEventListener("click", closeDetail);
-    el("fSave").addEventListener("click", async function () {
+    el("fSave").addEventListener("click", function () {
       if (!S.point) return fail(err, "Place a point on the map first.");
       if (!STATES[asset.value]) return fail(err, "Choose road or building.");
       if (STATES[asset.value].indexOf(obs.value) === -1) {
         return fail(err, U.stateLabel(obs.value) + " is not a valid state for a " + asset.value + ".");
       }
       err.classList.remove("on");
-      await API.createReport({
-        lat: S.point.lat, lon: S.point.lng,
-        asset_type: asset.value, state: obs.value, image_path: "mocks/images/report-6.svg"
+      U.busy(el("fSave"), async function () {
+        await API.createReport({
+          lat: S.point.lat, lon: S.point.lng,
+          asset_type: asset.value, state: obs.value, image_path: "mocks/images/report-6.svg"
+        });
+        cancelPlacing();
+        closeDetail();
+        S.filter = "pending";
+        syncFilters();
+        await load();
       });
-      cancelPlacing();
-      closeDetail();
-      S.filter = "pending";
-      syncFilters();
-      await load();
     });
   }
 
@@ -569,10 +716,10 @@
       drawQueue();
     }));
 
-  el("mode").addEventListener("change", async e => { await API.updateSettings(e.target.value); });
-
   document.addEventListener("keydown", function (e) {
-    if (e.key === "Escape" && (S.placing || detail.classList.contains("open"))) closeDetail();
+    if (e.key !== "Escape") return;
+    if (lightbox.classList.contains("open")) closeLightbox();
+    else if (S.placing || detail.classList.contains("open")) closeDetail();
   });
 
   let lastSyncedAt = null, syncOk = true;
@@ -607,12 +754,16 @@
     loading = true;
     setSync("Syncing…");
     try {
-      const [reports, roads, pockets] = await Promise.all([API.getReports(), API.getRoads(), API.getPockets()]);
+      const [reports, roads, pockets, detours] = await Promise.all([
+        API.getReports(), API.getRoads(), API.getPockets(),
+        API.getDetours().catch(() => [])]);
       S.reports = reports;
       S.roads = roads;
       S.pockets = pockets;
+      S.detours = detours;
       drawRoads();
       drawAreas();
+      drawDetours();
       drawPins();
       drawQueue();
       drawImpact();
@@ -640,9 +791,6 @@
   // refresh to notice a new report or a cleared road -- this is what makes
   // "operations console" mean something rather than "static snapshot".
   setInterval(load, 20000);
-  API.getSettings().then(function (settings) {
-    el("mode").value = settings.detection_mode;
-    syncFilters();
-    return load();
-  });
+  syncFilters();
+  load();
 })();

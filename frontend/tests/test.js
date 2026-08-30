@@ -83,7 +83,6 @@ assert.equal(AppUtils.label("status", "rejected"), "Dismissed");
 assert.ok(!AppUtils.label("status", "in_progress").includes("_"));
 assert.ok(!AppUtils.label("status_short", "in_progress").includes("_"));
 assert.equal(AppUtils.label("detection_mode", "api"), "Cloud API");
-assert.equal(AppUtils.label("detection_mode", "model"), "Offline model");
 assert.equal(AppUtils.label("detection_mode", "manual"), "Manual entry");
 assert.equal(AppUtils.label("asset_type", "building"), "Building");
 assert.equal(AppUtils.stateLabel("not_damaged"), "Not damaged");
@@ -94,7 +93,7 @@ assert.equal(AppUtils.stateLabel("passable"), "Passable");
   assert.notEqual(AppUtils.label("status", v), v);
   assert.notEqual(AppUtils.label("status_short", v), v);
 });
-["api", "model", "manual"].forEach(v => assert.notEqual(AppUtils.label("detection_mode", v), v));
+["api", "manual"].forEach(v => assert.notEqual(AppUtils.label("detection_mode", v), v));
 ["passable", "impassable", "unknown", "damaged", "not_damaged"].forEach(v => assert.notEqual(AppUtils.stateLabel(v), v));
 assert.ok(!AppUtils.stateLabel("not_damaged").includes("_"));
 
@@ -221,6 +220,21 @@ assert.equal(summary.peopleAffected, 12073);
 assert.equal(summary.estimated, true);
 assert.equal(summary.incomplete, false);
 assert.equal(AppUtils.peopleText(summary), "≈12,073");
+assert.equal(summary.buildingsDamaged, 1, "the pending damaged building counts");
+assert.equal(summary.bridgesImpassable, 0, "no roads array passed -- bridges unknown without one");
+
+// Bridges impassable only counts a road that is BOTH impassable (per the
+// same live-report rule as roadsImpassable) AND flagged bridge:true in the
+// roads layer -- an ordinary impassable road must not inflate the count.
+const bridgeRoads = [{ edge_id: "edge-1", bridge: true }, { edge_id: "edge-2", bridge: false }];
+assert.equal(AppUtils.impactSummary(reports, pockets, bridgeRoads).bridgesImpassable, 1);
+// A closed report on a bridge span must not count either.
+assert.equal(AppUtils.impactSummary(
+  [{ id: 20, asset_type: "road", state: "impassable", status: "resolved", edge_id: "edge-9" }],
+  [], [{ edge_id: "edge-9", bridge: true }]).bridgesImpassable, 0);
+// Zero damaged buildings: the count is 0, not undefined -- the dashboard
+// needs a real number to decide whether to hide the figure.
+assert.equal(AppUtils.impactSummary([], []).buildingsDamaged, 0);
 
 // Census only: no estimate marker.
 summary = AppUtils.impactSummary(reports, [pockets[0]]);
@@ -266,8 +280,10 @@ assert.ok(mock.roads.length >= 300, "dense network, got " + mock.roads.length);
 assert.ok(mock.roads.every(r => r.coordinates.length >= 2 && r.edge_id && r.highway));
 assert.ok(new Set(mock.roads.map(r => r.highway)).size >= 3, "several highway classes");
 assert.equal(new Set(mock.roads.map(r => r.edge_id)).size, mock.roads.length, "edge ids unique");
-const demo = AppUtils.impactSummary(mock.reports, mock.pockets);
+const demo = AppUtils.impactSummary(mock.reports, mock.pockets, mock.roads);
 assert.equal(demo.roadsImpassable, 3);
+assert.equal(demo.bridgesImpassable, 1, "only severedEdge is flagged bridge:true in the mock");
+assert.equal(demo.buildingsDamaged, 2);
 assert.equal(demo.areasSevered, 2);
 assert.equal(demo.peopleAffected, 12073);
 assert.equal(demo.estimated, true);
@@ -306,6 +322,59 @@ sameList(AppUtils.pocketReportIds({
   severing_edges: [{ edge_id: "a", report_ids: [4, 1] }, { edge_id: "b", report_ids: [1, 9] }]
 }), [1, 4, 9], "deduped across edges");
 sameList(AppUtils.pocketReportIds({ severing_edges: [{ edge_id: "a" }] }), []);
+
+/* --- re-bind picker options --- */
+assert.equal(
+  AppUtils.bindOptionLabel({ edge_id: "1-2", distance_m: 4.4 }, { name: "Beach Road" }),
+  "Beach Road · 4 m away");
+assert.equal(
+  AppUtils.bindOptionLabel({ edge_id: "1-2", distance_m: 12 }, { name: "<unnamed>" }),
+  "Unnamed span · 12 m away", "an unnamed span still reads");
+assert.equal(
+  AppUtils.bindOptionLabel({ edge_id: "1-2" }, undefined),
+  "Unnamed span", "no road record, no distance -- still a label, never 'undefined'");
+(function () {
+  const roadsById = { "a-b": { name: "Main St" }, "c-d": { name: "<unnamed>" } };
+  const report = { edge_id: "a-b", bind_candidates: [
+    { edge_id: "a-b", distance_m: 1 }, { edge_id: "c-d", distance_m: 9 }] };
+  const opts = AppUtils.bindOptions(report, roadsById);
+  assert.equal(opts.length, 2);
+  assert.equal(opts[0].current, true, "the bound edge is marked current");
+  assert.equal(opts[1].current, false);
+  // The bound edge is guaranteed present even if it fell off the shortlist.
+  const orphan = AppUtils.bindOptions(
+    { edge_id: "z-z", bind_candidates: [{ edge_id: "a-b", distance_m: 3 }] }, roadsById);
+  assert.equal(orphan.length, 2);
+  assert.equal(orphan[0].edge_id, "z-z");
+  assert.ok(/current/.test(orphan[0].label));
+  assert.deepEqual(AppUtils.bindOptions({ edge_id: null, bind_candidates: [] }, roadsById), []);
+})();
+// The mock backend must serve GET /api/reports/{id} with a candidate shortlist.
+context.window.API.getReports().then(list =>
+  context.window.API.getReport(list[0].id)).then(full => {
+  assert.ok(Array.isArray(full.bind_candidates), "single-report fetch carries bind_candidates");
+  assert.ok(full.bind_candidates.length >= 1);
+  assert.ok(full.bind_candidates.every(c => c.edge_id && typeof c.distance_m === "number"));
+}).catch(error => { console.error(error); process.exit(1); });
+
+/* --- detours + settings endpoints the dashboard now consumes --- */
+context.window.API.getDetours().then(list => {
+  assert.ok(Array.isArray(list));
+  list.forEach(d => {
+    assert.ok(Array.isArray(d.polygon) && d.polygon.length >= 3, "a detour zone is drawable");
+    assert.equal(typeof d.added_km, "number");
+  });
+}).catch(error => { console.error(error); process.exit(1); });
+
+context.window.API.getSettings().then(s => {
+  const keys = Object.keys(s);
+  assert.ok(keys.length >= 6, "the tuning panel needs constants to show, got " + keys.length);
+  assert.ok(keys.every(k => typeof s[k] === "number"), "every setting is numeric");
+  const next = Object.assign({}, s, { population_exponent: 0.5 });
+  return context.window.API.setSettings(next);
+}).then(saved => {
+  assert.equal(saved.population_exponent, 0.5, "POST /api/settings round-trips the change");
+}).catch(error => { console.error(error); process.exit(1); });
 
 /* --- measurement formatting --- */
 assert.equal(AppUtils.kmText(4.65), "4.65 km");

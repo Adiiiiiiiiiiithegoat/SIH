@@ -14,10 +14,17 @@
   // click away, same toggle Google Maps uses. The canvas has no labels of
   // its own, so its place names are a second layer grouped with the base.
   const B = U.BASEMAPS;
+  const baseTiles = L.tileLayer(B.map.url, Object.assign({ attribution: B.map.attribution }, B.map.options));
   const baseLayer = L.layerGroup([
-    L.tileLayer(B.map.url, Object.assign({ attribution: B.map.attribution }, B.map.options)),
+    baseTiles,
     L.tileLayer(B.map.labelsUrl, B.map.options)
   ]).addTo(map);
+
+  // Clear the "Loading map…" cover when the visible tiles arrive, or after a
+  // few seconds regardless so a slow CDN can't leave it stuck on.
+  const hideLocLoading = () => { const n = el("locLoading"); if (n) n.hidden = true; };
+  baseTiles.once("load", hideLocLoading);
+  setTimeout(hideLocLoading, 4000);
   const satLayer = L.tileLayer(B.satellite.url, Object.assign({ attribution: B.satellite.attribution }, B.satellite.options));
   L.control.layers({ "Map": baseLayer, "Satellite": satLayer }, null, { position: "topright", collapsed: false }).addTo(map);
   // Our drawn road network is thin light-gray lines -- built to be recessive
@@ -171,6 +178,7 @@
   }
 
   async function locate() {
+    say("Reading location from the file…", "warn");
     const found = await readExif(file);
     if (found) {
       place(found.lat, found.lon);
@@ -224,6 +232,6 @@
     }
   }
 
-  el("send").addEventListener("click", send);
+  el("send").addEventListener("click", () => U.busy(el("send"), send));
   window.addEventListener("online", () => { if (file) send(); });
 })();

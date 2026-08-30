@@ -1,5 +1,5 @@
 /* ==========================================================================
-   Responda — operations console
+   NETRA — operations console
    Light ground, thin rules, tabular data. No pills, no keyframes.
    Four semantic colours (bad / warn / ok / neutral), one spacing scale,
    one type scale. Nothing below picks its own hex.
@@ -219,7 +219,7 @@ table { border-collapse: collapse; width: 100% }
   display: flex; flex-direction: column;
   background: var(--paper);
 }
-.mapwrap { border-left: 1px solid var(--rule) }
+.mapwrap { border-left: 1px solid var(--rule); position: relative }
 
 /* ============================================================ Queue */
 
@@ -289,6 +289,7 @@ td.why { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-s
 
 /* Column widths: everything fixed so the assessment gets the leftover room,
    which is the column an operator actually reads. */
+col.c-ref { width: 52px }
 col.c-pri { width: 132px }
 col.c-asset { width: 72px }
 col.c-state { width: 124px }
@@ -405,6 +406,12 @@ tr[aria-selected="true"].band-critical td:first-child { box-shadow: inset 3px 0 
 .pocket:hover, .pocket.on { fill-opacity: .2; stroke-width: 2.5 }
 .cut { stroke: var(--bad) }
 .cut.on { stroke-width: 6 }
+/* Opt-in overlay -- recessive against the severed pockets. */
+.detour {
+  fill: var(--warn, #c2610a); fill-opacity: .07;
+  stroke: var(--warn, #c2610a); stroke-width: 1; stroke-dasharray: 5 4;
+}
+.detour:hover { fill-opacity: .16 }
 
 /* A one-shot highlight for a pocket or pin that appeared since the last
    refresh -- a CSS transition back to normal, not a looping animation. This
@@ -432,6 +439,19 @@ tr[aria-selected="true"].band-critical td:first-child { box-shadow: inset 3px 0 
 .detail-body { overflow: auto; padding: var(--s4); flex: 1 }
 .cols { display: grid; grid-template-columns: 200px minmax(0, 1fr) minmax(0, 1fr); gap: var(--s5) }
 .cols img { width: 100%; border: 1px solid var(--rule) }
+.cols img.zoomable { cursor: zoom-in }
+
+/* Full-screen field photo, so an operator can actually read the damage. */
+.lightbox { position: fixed; inset: 0; z-index: 1000; display: none;
+  align-items: center; justify-content: center; padding: var(--s5);
+  background: rgba(12, 14, 16, .92) }
+.lightbox.open { display: flex }
+.lightbox img { max-width: 100%; max-height: 100%; object-fit: contain;
+  cursor: zoom-in; box-shadow: 0 4px 32px rgba(0, 0, 0, .5) }
+.lightbox.zoomed { display: block; overflow: auto }
+.lightbox.zoomed img { max-width: none; max-height: none; width: auto; cursor: zoom-out }
+.lightbox-hint { position: fixed; left: 0; right: 0; bottom: var(--s4); text-align: center;
+  color: rgba(255, 255, 255, .7); font-size: var(--t-sm); pointer-events: none }
 
 dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: var(--s1) var(--s4); align-content: start }
 dt { color: var(--ink-3); font-size: var(--t-sm); white-space: nowrap }
@@ -496,6 +516,9 @@ button.line:hover { background: var(--hover) }
   width: 100%; padding: var(--s1) var(--s2);
   border: 1px solid var(--rule-strong); background: var(--paper);
 }
+.settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 var(--s4) }
+.settings-grid .field { margin-bottom: var(--s2) }
+@media (max-width: 640px) { .settings-grid { grid-template-columns: 1fr } }
 
 /* ============================================================ Upload page */
 
@@ -508,7 +531,7 @@ button.line:hover { background: var(--hover) }
 .drop input { margin-top: var(--s3) }
 .preview { display: none; margin-top: var(--s4) }
 .preview img { max-width: 220px; border: 1px solid var(--rule) }
-.locator { height: 260px; margin-top: var(--s4); border: 1px solid var(--rule) }
+.locator { height: 260px; margin-top: var(--s4); border: 1px solid var(--rule); position: relative }
 
 .geosearch { position: relative; margin-top: var(--s4) }
 .geosearch-results {
@@ -535,6 +558,35 @@ button.line:hover { background: var(--hover) }
 .msg.ok { display: block; background: var(--ok-soft); border-color: var(--ok); color: var(--ok) }
 .msg.warn { display: block; background: var(--warn-soft); border-color: var(--warn); color: var(--warn) }
 .msg.err { display: block; background: var(--bad-soft); border-color: var(--bad); color: var(--bad) }
+
+/* ============================================================ Busy / loading
+   Everything else here follows a "no keyframes" rule. A spinner needs one,
+   and a slow request that reads as a dead page is the worse problem, so:
+   exactly one keyframe, used only for the states below. */
+@keyframes spin { to { transform: rotate(360deg) } }
+
+/* A button mid-request: hide its label, block re-clicks, spin in its place. */
+.btn[aria-busy="true"] { color: transparent; position: relative; pointer-events: none; opacity: .8 }
+.btn[aria-busy="true"]::after {
+  content: ""; position: absolute; inset: 0; margin: auto;
+  width: 13px; height: 13px; border-radius: 50%;
+  border: 2px solid var(--ink-3); border-right-color: transparent;
+  animation: spin .7s linear infinite;
+}
+.btn-primary[aria-busy="true"]::after { border-color: #fff; border-right-color: transparent }
+
+/* Full-panel cover for a map or the queue before its first data lands. */
+.loading {
+  position: absolute; inset: 0; z-index: 600;
+  display: flex; align-items: center; justify-content: center; gap: var(--s2);
+  background: var(--paper); color: var(--ink-2); font-size: var(--t-sm);
+}
+.loading[hidden] { display: none }
+.loading::before {
+  content: ""; width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid var(--rule-strong); border-right-color: transparent;
+  animation: spin .7s linear infinite;
+}
 
 /* ============================================================ Responsive */
 

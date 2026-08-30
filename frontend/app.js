@@ -86,6 +86,7 @@
     if (path === "/api/reports" && (!options || options.method === "GET")) return clone(mock.reports);
     if (path === "/api/roads") return clone(mock.roads);
     if (path === "/api/pockets") return clone(mock.pockets);
+    if (path === "/api/detours") return clone(mock.detours || []);
     if (path === "/api/settings" && (!options || options.method === "GET")) return clone(mock.settings);
     if (path === "/api/settings" && options && options.method === "POST") {
       mock.settings = JSON.parse(options.body);
@@ -109,6 +110,26 @@
       mock.reports.unshift(report);
       recompute();
       return clone(report);
+    }
+    const single = path.match(/^\/api\/reports\/(\d+)$/);
+    if (single && (!options || options.method === "GET")) {
+      const report = mock.reports.find(item => item.id === Number(single[1]));
+      if (!report) throw new Error("Report not found");
+      // Synthesise a candidate shortlist the way binding.candidates() would:
+      // the bound edge first, then the next-nearest spans by midpoint.
+      const here = [report.lat, report.lon];
+      const ranked = mock.roads
+        .map(road => ({ road: road, d: near(here, midpoint(road)) }))
+        .sort((a, b) => a.d - b.d).slice(0, 5);
+      const cands = ranked.map(x => ({
+        edge_id: x.road.edge_id,
+        distance_m: Math.round(x.d * 111000),
+        score: Number(Math.max(0, 1 - x.d / 0.01).toFixed(4))
+      }));
+      if (report.edge_id && !cands.some(c => c.edge_id === report.edge_id)) {
+        cands.unshift({ edge_id: report.edge_id, distance_m: 0, score: 1 });
+      }
+      return clone(Object.assign({}, report, { bind_candidates: cands, bearing: null }));
     }
     const write = path.match(/^\/api\/reports\/(\d+)\/(status|state|edge)$/);
     if (write && options && options.method === "POST") {
@@ -136,8 +157,9 @@
     updateEdge: (id, edge_id) => request("/api/reports/" + id + "/edge", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ edge_id }) }),
     getRoads: () => request("/api/roads"),
     getPockets: () => request("/api/pockets"),
+    getDetours: () => request("/api/detours"),
     getSettings: () => request("/api/settings"),
-    updateSettings: mode => request("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ detection_mode: mode }) })
+    setSettings: body => request("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
   };
 
   // Every enum in CONTRACT.md gets its display text here and nowhere else.
@@ -150,7 +172,7 @@
       pending: "Pending", in_progress: "In progress",
       resolved: "Resolved", rejected: "Dismissed"
     },
-    detection_mode: { api: "Cloud API", model: "Offline model", manual: "Manual entry" },
+    detection_mode: { api: "Cloud API", manual: "Manual entry" },
     state: {
       passable: "Passable", impassable: "Impassable", unknown: "Unknown",
       damaged: "Damaged", not_damaged: "Not damaged"
@@ -301,12 +323,21 @@
     // loaded. Road state mirrors the backend exactly: a span counts as cut
     // only while a LIVE report says so. Counting a resolved case here is what
     // produced "2 roads impassable" beside a single cut-off area.
-    impactSummary: function (reports, pockets) {
-      const edges = new Set();
+    //
+    // `roads` is optional and only used to tell which impassable edges are
+    // bridges -- omit it and bridgesImpassable is just 0, so old callers (and
+    // tests) that only pass reports/pockets keep working.
+    impactSummary: function (reports, pockets, roads) {
+      const bridgeEdges = new Set((roads || []).filter(r => r.bridge).map(r => r.edge_id));
+      const edges = new Set(), bridges = new Set();
       (reports || []).forEach(function (report) {
         if (report.asset_type !== "road" || report.state !== "impassable" || !isLive(report)) return;
-        edges.add(report.edge_id || "report-" + report.id);
+        const eid = report.edge_id || "report-" + report.id;
+        edges.add(eid);
+        if (bridgeEdges.has(eid)) bridges.add(eid);
       });
+      const buildingsDamaged = (reports || []).filter(report =>
+        report.asset_type === "building" && report.state === "damaged" && isLive(report)).length;
       const list = pockets || [];
       let people = 0, counted = 0, estimated = false, incomplete = false;
       list.forEach(function (pocket) {
@@ -317,6 +348,8 @@
       });
       return {
         roadsImpassable: edges.size,
+        bridgesImpassable: bridges.size,
+        buildingsDamaged: buildingsDamaged,
         areasSevered: list.length,
         peopleAffected: list.length === 0 ? 0 : (counted ? Math.round(people) : null),
         estimated: estimated,
@@ -340,6 +373,43 @@
 
     sortReports: reports => reports.slice().sort((a, b) => (a.priority_score == null) - (b.priority_score == null) || (b.priority_score || 0) - (a.priority_score || 0)),
     escape: escape,
+
+    // One option in the "re-bind this report" picker. `road` is the matching
+    // record from GET /api/roads, or undefined for an edge not in the layer.
+    bindOptionLabel: function (cand, road) {
+      const name = road && road.name && road.name !== "<unnamed>" ? road.name : "Unnamed span";
+      const parts = [name];
+      if (cand && cand.distance_m != null) parts.push(Math.round(cand.distance_m) + " m away");
+      return parts.join(" · ");
+    },
+    // The candidate shortlist, with the currently-bound edge guaranteed present
+    // and marked -- an operator may have already overridden to an off-list edge.
+    bindOptions: function (report, roadsById) {
+      const cands = (report && report.bind_candidates) || [];
+      const out = cands.map(c => ({
+        edge_id: c.edge_id,
+        label: this.bindOptionLabel(c, roadsById && roadsById[c.edge_id]),
+        current: c.edge_id === report.edge_id
+      }));
+      if (report && report.edge_id && !out.some(o => o.current)) {
+        out.unshift({
+          edge_id: report.edge_id,
+          label: this.bindOptionLabel({ edge_id: report.edge_id }, roadsById && roadsById[report.edge_id]) + " · current",
+          current: true
+        });
+      }
+      return out;
+    },
+
+    // A button whose click fires a slow request: disable it and flip
+    // [aria-busy] (CSS swaps in a spinner) until the promise settles, so a
+    // pending action doesn't read as a frozen page. Safe if the button is
+    // torn out of the DOM mid-flight -- the restore just no-ops.
+    busy: async function (btn, fn) {
+      if (btn) { btn.setAttribute("aria-busy", "true"); btn.disabled = true; }
+      try { return await fn(); }
+      finally { if (btn) { btn.removeAttribute("aria-busy"); btn.disabled = false; } }
+    },
 
     // --- severed pockets ---------------------------------------------------
 
