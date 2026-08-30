@@ -132,8 +132,10 @@
     detection_mode: "api", priority_score: 9812.4,
     priority_reason: "Severs Hosabettu from Padmavathi Hospital; 8,420 residents lose their only route"
   });
+  // Crews are on this one. It is deliberately NOT "resolved": a resolved case
+  // means the road is open again, so it could not still be cutting Mukka off.
   report(severedEdgeB, {
-    state: "impassable", status: "resolved", confidence: 0.91, n_reports: 3, gps_accuracy_m: 4.2,
+    state: "impassable", status: "in_progress", confidence: 0.91, n_reports: 3, gps_accuracy_m: 4.2,
     detection_mode: "model", priority_score: 8104.0,
     priority_reason: "Cuts Mukka from the Surathkal Primary Health Centre approach"
   });

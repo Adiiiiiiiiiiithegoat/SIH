@@ -118,10 +118,12 @@ EXIF GPS auto-read → marker placement → `POST /api/reports` → correct edge
 bind → dashboard re-render, zero console/page errors. Dev setup in practice:
 a plain `python -m http.server 8000` in `frontend/` serves the static pages;
 `uvicorn` serves the API on `8001`; both need to be running for anything to
-work, and uvicorn is **not** run with `--reload` here, so a code change to
-`app/*.py` needs a manual process restart to take effect (kill the PID
-listening on 8001, relaunch the same uvicorn command) — this bit us once
-mid-session.
+work. **Run uvicorn with `--reload`** — it is how the API is now started, and
+it is not optional. Without it a change to `app/*.py` needs a manual process
+restart to take effect, and a stale process silently serves the old logic: it
+cost us a bogus "2 areas cut off" on an already-resolved case, because the
+running server predated the commit that made resolving a report reopen its
+road. Twice bitten.
 
 The frontend added a real operator console since the original version of this
 doc: priority-tiered queue (CRITICAL/HIGH/LOW/No impact), a Leaflet map with
