@@ -91,10 +91,14 @@ def test_roads_returns_every_edge_with_state_and_coordinates(client, network):
     roads = client.get("/api/roads").json()
     assert len(roads) == len(network.spans)
     for road in roads[:50]:
+        assert set(road) == {"edge_id", "coordinates", "state", "name", "highway", "length_m"}
         assert road["state"] in ("passable", "impassable", "unknown")
         assert len(road["coordinates"]) >= 2
         lat, lon = road["coordinates"][0]
         assert 12.9 < lat < 13.2 and 74.7 < lon < 74.9, "coordinates are (lat, lon)"
+        # The map weights line thickness by class, so it must be a plain string.
+        assert road["highway"] is None or isinstance(road["highway"], str)
+    assert any(r["highway"] == "trunk" for r in roads), "the trunk network is classed"
 
 
 def test_a_reported_road_shows_its_state_on_the_roads_layer(client):

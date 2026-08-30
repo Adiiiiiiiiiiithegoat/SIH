@@ -152,6 +152,22 @@ class Network:
         nm = d.get("name") or d.get("ref") or "<unnamed>"
         return ", ".join(str(x) for x in nm) if isinstance(nm, list) else str(nm)
 
+    def span_highway(self, eid):
+        """The span's OSM highway class, raw ('trunk', 'residential', ...).
+
+        Same longest-segment rule as span_name. A way tagged with several
+        classes comes back as a list from osmnx; keep the first, which is the
+        primary classification.
+        """
+        segs = self.spans.get(eid)
+        if not segs:
+            return None
+        d = max((s[3] for s in segs), key=lambda dd: float(dd.get("length", 0) or 0))
+        hw = d.get("highway")
+        if isinstance(hw, list):
+            hw = hw[0] if hw else None
+        return str(hw) if hw else None
+
     def span_length(self, eid):
         segs = self.spans.get(eid, [])
         return max((float(s[3].get("length", 0) or 0) for s in segs), default=0.0)
