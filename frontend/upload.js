@@ -9,11 +9,15 @@
   L.control.zoom({ position: "topright" }).addTo(map);
   L.control.attribution({ prefix: false, position: "bottomright" }).addTo(map);
 
-  // Positron by default -- pale enough that the marker and the drawn road
-  // network stay the thing your eye lands on. Satellite is one click away,
-  // same toggle Google Maps uses, for when the imagery itself is the point.
+  // Light gray canvas by default -- pale enough that the marker and the
+  // drawn road network stay the thing your eye lands on. Satellite is one
+  // click away, same toggle Google Maps uses. The canvas has no labels of
+  // its own, so its place names are a second layer grouped with the base.
   const B = U.BASEMAPS;
-  const baseLayer = L.tileLayer(B.map.url, Object.assign({ attribution: B.map.attribution }, B.map.options)).addTo(map);
+  const baseLayer = L.layerGroup([
+    L.tileLayer(B.map.url, Object.assign({ attribution: B.map.attribution }, B.map.options)),
+    L.tileLayer(B.map.labelsUrl, B.map.options)
+  ]).addTo(map);
   const satLayer = L.tileLayer(B.satellite.url, Object.assign({ attribution: B.satellite.attribution }, B.satellite.options));
   L.control.layers({ "Map": baseLayer, "Satellite": satLayer }, null, { position: "topright", collapsed: false }).addTo(map);
   // Our drawn road network is thin light-gray lines -- built to be recessive

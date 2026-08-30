@@ -58,6 +58,9 @@ assert.equal(placeLabel({ display_name: "Just One Thing" }).detail, "");
   ["{z}", "{x}", "{y}"].forEach(ph => assert.ok(b.url.includes(ph), key + " url has a " + ph + " placeholder"));
 });
 assert.notEqual(AppUtils.BASEMAPS.map.url, AppUtils.BASEMAPS.satellite.url);
+// The gray canvas base ships with no labels; the reference layer is what
+// stacks names/boundaries on top of it.
+["{z}", "{x}", "{y}"].forEach(ph => assert.ok(AppUtils.BASEMAPS.map.labelsUrl.includes(ph)));
 
 /* --- map colours come from the semantic token set, not per-component hexes --- */
 assert.equal(AppUtils.markerColor("impassable"), AppUtils.COLORS.bad);

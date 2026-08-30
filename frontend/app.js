@@ -175,17 +175,24 @@
   };
 
   // Free, keyless raster tile sources, shared by both maps so they cannot
-  // silently drift to different looks. Positron is the default -- its pale
-  // ground and thin streets were built to carry data drawn on top of it,
-  // which is exactly what this app does; Esri's satellite imagery is the
-  // alternative a viewer can switch to, same as Google Maps' own toggle.
+  // silently drift to different looks. Both come from Esri (one attribution
+  // story, one ToS): World Light Gray Canvas is the pale base with data drawn
+  // on top of it, which is exactly what this app does; World Imagery is the
+  // satellite alternative a viewer can switch to, same as Google Maps' own
+  // toggle. CARTO's basemaps.cartocdn.com was tried first and dropped -- it
+  // now serves an "API KEY REQUIRED" watermark baked into the tile image
+  // itself, which still returns HTTP 200 and so passes a naive "did the
+  // request succeed" check; only actually opening a returned tile caught it.
+  // The gray canvas ships with no labels by design -- `labelsUrl` is Esri's
+  // companion transparent overlay (place names, boundaries) stacked on top.
   // Plain config here, not `L.tileLayer(...)` calls -- this file loads in a
   // Node test sandbox with no Leaflet, so it must stay Leaflet-free.
   const BASEMAPS = {
     map: {
-      url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-      options: { subdomains: "abcd", maxZoom: 19 }
+      url: "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+      labelsUrl: "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}",
+      attribution: "Esri, HERE, Garmin, &copy; OpenStreetMap contributors",
+      options: { maxZoom: 16 }
     },
     satellite: {
       url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",

@@ -11,11 +11,17 @@
   L.control.attribution({ prefix: false, position: "bottomright" }).addTo(map);
   map.createPane("areas").style.zIndex = 390;
 
-  // Positron by default, satellite one click away -- same toggle Google Maps
-  // uses. The drawn network and pockets need a white halo once the ground
-  // under them is a photo instead of a pale basemap; see .sat-mode in CSS.
+  // Light gray canvas by default, satellite one click away -- same toggle
+  // Google Maps uses. The drawn network and pockets need a white halo once
+  // the ground under them is a photo instead of a pale basemap; see
+  // .sat-mode in CSS. The canvas ships with no labels, so its place names
+  // are a second transparent layer stacked on top -- grouped with the base
+  // so the layer control still shows one "Map" choice, not two.
   const B = U.BASEMAPS;
-  const baseLayer = L.tileLayer(B.map.url, Object.assign({ attribution: B.map.attribution }, B.map.options)).addTo(map);
+  const baseLayer = L.layerGroup([
+    L.tileLayer(B.map.url, Object.assign({ attribution: B.map.attribution }, B.map.options)),
+    L.tileLayer(B.map.labelsUrl, B.map.options)
+  ]).addTo(map);
   const satLayer = L.tileLayer(B.satellite.url, Object.assign({ attribution: B.satellite.attribution }, B.satellite.options));
   L.control.layers({ "Map": baseLayer, "Satellite": satLayer }, null, { position: "topright", collapsed: false }).addTo(map);
   map.on("baselayerchange", e => map.getContainer().classList.toggle("sat-mode", e.name === "Satellite"));
