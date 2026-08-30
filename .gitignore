@@ -39,3 +39,6 @@ report*.txt
 
 # OS
 .DS_Store
+
+# Local tunnel binary (demo deploy, not project code)
+.bin/

@@ -9,6 +9,15 @@ access as a result, and hands an operator a prioritised inspection queue.
 photo" — it's ranking by consequence (how many people, how much delay) so an
 operator with ten crews and two hundred reports knows which ten to send first.
 
+## Live demo
+
+**https://james-innovations-bridge-printer.trycloudflare.com**
+
+Tunnelled from a local `uvicorn` instance for the hackathon judging window —
+not a persistent deployment. If the link is down, the host machine is
+offline; run `uvicorn app.main:app --port 8001` plus `cloudflared tunnel
+--url http://127.0.0.1:8001` to bring up a fresh one.
+
 ## Scope of this build
 
 This build covers one coastal taluk — Surathkal–Mulki, Dakshina Kannada,
